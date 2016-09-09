@@ -47,7 +47,7 @@ G_BEGIN_DECLS
 #define GST_IS_MSDKH265ENC_CLASS(klass) \
   (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_MSDKH265ENC))
 
-typedef struct _GstMsdkH265Enc      GstMsdkH265Enc;
+typedef struct _GstMsdkH265Enc GstMsdkH265Enc;
 typedef struct _GstMsdkH265EncClass GstMsdkH265EncClass;
 
 struct _GstMsdkH265Enc

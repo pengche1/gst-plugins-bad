@@ -58,8 +58,7 @@ plugin_init (GstPlugin * plugin)
       "msdkh265enc");
   GST_DEBUG_CATEGORY_INIT (gst_msdkmpeg2enc_debug, "msdkmpeg2enc", 0,
       "msdkmpeg2enc");
-  GST_DEBUG_CATEGORY_INIT (gst_msdkvp8enc_debug, "msdkvp8enc", 0,
-      "msdkvp8enc");
+  GST_DEBUG_CATEGORY_INIT (gst_msdkvp8enc_debug, "msdkvp8enc", 0, "msdkvp8enc");
 
 
   if (!msdk_is_available ())

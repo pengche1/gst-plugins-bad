@@ -53,9 +53,9 @@ G_BEGIN_DECLS
 
 #define MAX_EXTRA_PARAMS 8
 
-typedef struct _GstMsdkEnc      GstMsdkEnc;
+typedef struct _GstMsdkEnc GstMsdkEnc;
 typedef struct _GstMsdkEncClass GstMsdkEncClass;
-typedef struct _MsdkEncTask     MsdkEncTask;
+typedef struct _MsdkEncTask MsdkEncTask;
 
 struct _GstMsdkEnc
 {
@@ -102,9 +102,9 @@ struct _GstMsdkEncClass
 {
   GstVideoEncoderClass parent_class;
 
-  gboolean       (*set_format)           (GstMsdkEnc *encoder);
-  gboolean       (*configure)            (GstMsdkEnc *encoder);
-  GstCaps *      (*set_src_caps)         (GstMsdkEnc *encoder);
+  gboolean (*set_format) (GstMsdkEnc * encoder);
+  gboolean (*configure) (GstMsdkEnc * encoder);
+  GstCaps *(*set_src_caps) (GstMsdkEnc * encoder);
 };
 
 struct _MsdkEncTask

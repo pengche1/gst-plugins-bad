@@ -47,7 +47,7 @@ G_BEGIN_DECLS
 #define GST_IS_MSDKMPEG2ENC_CLASS(klass) \
   (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_MSDKMPEG2ENC))
 
-typedef struct _GstMsdkMPEG2Enc      GstMsdkMPEG2Enc;
+typedef struct _GstMsdkMPEG2Enc GstMsdkMPEG2Enc;
 typedef struct _GstMsdkMPEG2EncClass GstMsdkMPEG2EncClass;
 
 struct _GstMsdkMPEG2Enc

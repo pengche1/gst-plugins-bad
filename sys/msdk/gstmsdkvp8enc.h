@@ -47,7 +47,7 @@ G_BEGIN_DECLS
 #define GST_IS_MSDKVP8ENC_CLASS(klass) \
   (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_MSDKVP8ENC))
 
-typedef struct _GstMsdkVP8Enc      GstMsdkVP8Enc;
+typedef struct _GstMsdkVP8Enc GstMsdkVP8Enc;
 typedef struct _GstMsdkVP8EncClass GstMsdkVP8EncClass;
 
 struct _GstMsdkVP8Enc
