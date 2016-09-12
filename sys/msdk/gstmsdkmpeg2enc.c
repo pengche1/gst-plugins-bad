@@ -35,8 +35,6 @@
 
 #include "gstmsdkmpeg2enc.h"
 
-#include <gst/pbutils/pbutils.h>
-
 GST_DEBUG_CATEGORY_EXTERN (gst_msdkmpeg2enc_debug);
 #define GST_CAT_DEFAULT gst_msdkmpeg2enc_debug
 

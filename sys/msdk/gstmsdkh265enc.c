@@ -35,8 +35,6 @@
 
 #include "gstmsdkh265enc.h"
 
-#include <gst/pbutils/pbutils.h>
-
 GST_DEBUG_CATEGORY_EXTERN (gst_msdkh265enc_debug);
 #define GST_CAT_DEFAULT gst_msdkh265enc_debug
 

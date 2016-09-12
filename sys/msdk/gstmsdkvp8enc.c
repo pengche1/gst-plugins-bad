@@ -36,8 +36,6 @@
 #include "gstmsdkvp8enc.h"
 #include "mfxvp8.h"
 
-#include <gst/pbutils/pbutils.h>
-
 GST_DEBUG_CATEGORY_EXTERN (gst_msdkvp8enc_debug);
 #define GST_CAT_DEFAULT gst_msdkvp8enc_debug
 
