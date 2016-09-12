@@ -1,7 +1,6 @@
 plugin_LTLIBRARIES = libgstmsdk.la
 
 libgstmsdk_la_SOURCES = \
-	msdk_libva.c \
 	gstmsdkh264enc.c \
 	gstmsdkh265enc.c \
 	gstmsdkmpeg2enc.c \
@@ -31,6 +30,15 @@ libgstmsdk_la_LIBADD = \
 	$(GST_PBUTILS_LIBS) \
 	$(GST_VIDEO_LIBS) \
 	$(MSDK_LIBS)
+
+if USE_MSDK_LIBVA
+libgstmsdk_la_SOURCES += \
+	msdk_libva.c
+libgstmsdk_la_CFLAGS += \
+	$(LIBVA_DRM_CFLAGS)
+libgstmsdk_la_LIBADD += \
+	$(LIBVA_DRM_LIBS)
+endif
 
 libgstmsdk_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)
 libgstmsdk_la_LIBTOOLFLAGS = $(GST_PLUGIN_LIBTOOLFLAGS)

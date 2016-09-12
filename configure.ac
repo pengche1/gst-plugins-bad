@@ -2042,13 +2042,18 @@ AG_GST_CHECK_FEATURE(MSDK, [Intel MediaSDK], msdk, [
   AC_LANG_POP([C++])
   LIBS="$save_LIBS"
 
+  PKG_CHECK_MODULES(LIBVA_DRM, libva-drm, HAVE_LIBVA_DRM="yes", HAVE_LIBVA_DRM="no")
+
   if test "x$HAVE_MFXDEFS_H" = "xyes" \
-      -a "x$HAVE_MFX_LIB" = "xyes"; then
+      -a "x$HAVE_MFX_LIB" = "xyes" \
+      -a "x$HAVE_LIBVA_DRM" = "xyes"; then
     HAVE_MSDK="yes"
   else
     HAVE_MSDK="no"
   fi
 ])
+AM_CONDITIONAL(USE_MSDK_LIBVA,
+    test "x$HAVE_MSDK" = "xyes" -a "x$HAVE_LIBVA_DRM" = "xyes")
 
 dnl *** ext plug-ins ***
 dnl keep this list sorted alphabetically !

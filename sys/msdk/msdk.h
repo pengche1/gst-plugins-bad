@@ -43,7 +43,7 @@ G_BEGIN_DECLS
 
 typedef struct _MsdkContext MsdkContext;
 
-gboolean msdk_is_available ();
+gboolean msdk_is_available (void);
 
 MsdkContext *msdk_open_context (gboolean hardware);
 void msdk_close_context (MsdkContext * context);

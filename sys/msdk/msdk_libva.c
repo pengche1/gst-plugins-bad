@@ -34,23 +34,15 @@
  *   - discover dri_path instead of having it hardcoded
  */
 
-#include <dlfcn.h>
 #include <fcntl.h>
 
+#include <va/va_drm.h>
 #include "msdk.h"
 
 GST_DEBUG_CATEGORY_EXTERN (gst_msdkenc_debug);
 #define GST_CAT_DEFAULT gst_msdkenc_debug
 
 #define INVALID_INDEX         ((guint) -1)
-#define VA_STATUS_SUCCESS     0x00000000
-
-typedef int VAStatus;
-typedef void *VADisplay;
-
-typedef VAStatus (*vaInitialize_type) (VADisplay, int *, int *);
-typedef VAStatus (*vaTerminate_type) (VADisplay);
-typedef VADisplay (*vaGetDisplayDRM_type) (int);
 
 struct _MsdkContext
 {
@@ -58,54 +50,6 @@ struct _MsdkContext
   gint fd;
   VADisplay dpy;
 };
-
-static void *libva_so_handle = NULL;
-static void *libva_drm_so_handle = NULL;
-static vaInitialize_type vaInitialize_proxy = NULL;
-static vaTerminate_type vaTerminate_proxy = NULL;
-static vaGetDisplayDRM_type vaGetDisplayDRM_proxy = NULL;
-
-static gboolean
-msdk_libva_proxy_init ()
-{
-  if (libva_so_handle && libva_drm_so_handle && vaInitialize_proxy
-      && vaTerminate_proxy && vaGetDisplayDRM_proxy)
-    return TRUE;
-
-  libva_so_handle = dlopen ("libva.so.1", RTLD_GLOBAL | RTLD_NOW);
-  if (!libva_so_handle)
-    return FALSE;
-
-  libva_drm_so_handle = dlopen ("libva-drm.so.1", RTLD_GLOBAL | RTLD_NOW);
-  if (!libva_drm_so_handle)
-    return FALSE;
-
-  vaInitialize_proxy =
-      (vaInitialize_type) dlsym (libva_so_handle, "vaInitialize");
-  vaTerminate_proxy = (vaTerminate_type) dlsym (libva_so_handle, "vaTerminate");
-  vaGetDisplayDRM_proxy =
-      (vaGetDisplayDRM_type) dlsym (libva_drm_so_handle, "vaGetDisplayDRM");
-
-  return (vaInitialize_proxy && vaTerminate_proxy && vaGetDisplayDRM_proxy);
-}
-
-#if 0
-void
-msdk_libva_proxy_deinit ()
-{
-  if (libva_drm_so_handle)
-    dlclose (libva_drm_so_handle);
-
-  if (libva_so_handle)
-    dlclose (libva_so_handle);
-
-  libva_so_handle = NULL;
-  libva_drm_so_handle = NULL;
-  vaInitialize_proxy = NULL;
-  vaTerminate_proxy = NULL;
-  vaGetDisplayDRM_proxy = NULL;
-}
-#endif
 
 static inline void
 msdk_close_session (mfxSession session)
@@ -166,7 +110,7 @@ failed:
 }
 
 gboolean
-msdk_is_available ()
+msdk_is_available (void)
 {
   mfxSession session = msdk_open_session (FALSE);
   if (!session) {
@@ -182,16 +126,11 @@ msdk_use_vaapi_on_context (MsdkContext * context)
 {
   gint fd;
   gint maj_ver, min_ver;
-  VADisplay va_dpy = NULL;;
+  VADisplay va_dpy = NULL;
   VAStatus va_status;
   mfxStatus status;
   /* maybe /dev/dri/renderD128 */
   static const gchar *dri_path = "/dev/dri/card0";
-
-  if (!msdk_libva_proxy_init ()) {
-    GST_ERROR ("Couldn't open libva or libva-drm libraries");
-    return FALSE;
-  }
 
   fd = open (dri_path, O_RDWR);
   if (fd < 0) {
@@ -199,13 +138,13 @@ msdk_use_vaapi_on_context (MsdkContext * context)
     return FALSE;
   }
 
-  va_dpy = vaGetDisplayDRM_proxy (fd);
+  va_dpy = vaGetDisplayDRM (fd);
   if (!va_dpy) {
     GST_ERROR ("Couldn't get a VA DRM display");
     goto failed;
   }
 
-  va_status = vaInitialize_proxy (va_dpy, &maj_ver, &min_ver);
+  va_status = vaInitialize (va_dpy, &maj_ver, &min_ver);
   if (va_status != VA_STATUS_SUCCESS) {
     GST_ERROR ("Couldn't initialize VA DRM display");
     goto failed;
@@ -226,7 +165,7 @@ msdk_use_vaapi_on_context (MsdkContext * context)
 
 failed:
   if (va_dpy)
-    vaTerminate_proxy (va_dpy);
+    vaTerminate (va_dpy);
   close (fd);
   return FALSE;
 }
@@ -262,7 +201,7 @@ msdk_close_context (MsdkContext * context)
 
   msdk_close_session (context->session);
   if (context->dpy)
-    vaTerminate_proxy (context->dpy);
+    vaTerminate (context->dpy);
   if (context->fd >= 0)
     close (context->fd);
   g_slice_free (MsdkContext, context);
