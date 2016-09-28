@@ -29,39 +29,44 @@
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __GST_MSDKVP8ENC_H__
-#define __GST_MSDKVP8ENC_H__
+#ifndef __GST_MSDKVPXENC_H__
+#define __GST_MSDKVPXENC_H__
 
-#include "gstmsdkvpxenc.h"
+#include "gstmsdkenc.h"
 
 G_BEGIN_DECLS
 
-#define GST_TYPE_MSDKVP8ENC \
-  (gst_msdkvp8enc_get_type())
-#define GST_MSDKVP8ENC(obj) \
-  (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_MSDKVP8ENC,GstMsdkVP8Enc))
-#define GST_MSDKVP8ENC_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_CAST((klass),GST_TYPE_MSDKVP8ENC,GstMsdkVP8EncClass))
-#define GST_IS_MSDKVP8ENC(obj) \
-  (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_MSDKVP8ENC))
-#define GST_IS_MSDKVP8ENC_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_MSDKVP8ENC))
+#define GST_TYPE_MSDKVPXENC \
+  (gst_msdkvpxenc_get_type())
+#define GST_MSDKVPXENC(obj) \
+  (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_MSDKVPXENC,GstMsdkVPXEnc))
+#define GST_MSDKVPXENC_CLASS(klass) \
+  (G_TYPE_CHECK_CLASS_CAST((klass),GST_TYPE_MSDKVPXENC,GstMsdkVPXEncClass))
+#define GST_MSDKVPXENC_GET_CLASS(obj) \
+  (G_TYPE_INSTANCE_GET_CLASS((obj),GST_TYPE_MSDKVPXENC,GstMsdkVPXEncClass))
+#define GST_IS_MSDKVPXENC(obj) \
+  (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_MSDKVPXENC))
+#define GST_IS_MSDKVPXENC_CLASS(klass) \
+  (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_MSDKVPXENC))
 
-typedef struct _GstMsdkVP8Enc GstMsdkVP8Enc;
-typedef struct _GstMsdkVP8EncClass GstMsdkVP8EncClass;
+typedef struct _GstMsdkVPXEnc GstMsdkVPXEnc;
+typedef struct _GstMsdkVPXEncClass GstMsdkVPXEncClass;
 
-struct _GstMsdkVP8Enc
+struct _GstMsdkVPXEnc
 {
-  GstMsdkVPXEnc base;
+  GstMsdkEnc base;
+
+  gint profile;
 };
 
-struct _GstMsdkVP8EncClass
+struct _GstMsdkVPXEncClass
 {
-  GstMsdkVPXEncClass parent_class;
+  GstMsdkEncClass parent_class;
+  const gchar * (*media_type) (void);
 };
 
-GType gst_msdkvp8enc_get_type (void);
+GType gst_msdkvpxenc_get_type (void);
 
 G_END_DECLS
 
-#endif /* __GST_MSDKVP8ENC_H__ */
+#endif /* __GST_MSDKVPXENC_H__ */

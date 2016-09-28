@@ -1,5 +1,5 @@
 /* GStreamer Intel MSDK plugin
- * Copyright (c) 2016, Oblong Industries, Inc.
+ * Copyright (c) 2016, Intel Corporation
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,39 +29,39 @@
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __GST_MSDKVP8ENC_H__
-#define __GST_MSDKVP8ENC_H__
+#ifndef __GST_MSDKVP9ENC_H__
+#define __GST_MSDKVP9ENC_H__
 
 #include "gstmsdkvpxenc.h"
 
 G_BEGIN_DECLS
 
-#define GST_TYPE_MSDKVP8ENC \
-  (gst_msdkvp8enc_get_type())
-#define GST_MSDKVP8ENC(obj) \
-  (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_MSDKVP8ENC,GstMsdkVP8Enc))
-#define GST_MSDKVP8ENC_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_CAST((klass),GST_TYPE_MSDKVP8ENC,GstMsdkVP8EncClass))
-#define GST_IS_MSDKVP8ENC(obj) \
-  (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_MSDKVP8ENC))
-#define GST_IS_MSDKVP8ENC_CLASS(klass) \
-  (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_MSDKVP8ENC))
+#define GST_TYPE_MSDKVP9ENC \
+  (gst_msdkvp9enc_get_type())
+#define GST_MSDKVP9ENC(obj) \
+  (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_MSDKVP9ENC,GstMsdkVP9Enc))
+#define GST_MSDKVP9ENC_CLASS(klass) \
+  (G_TYPE_CHECK_CLASS_CAST((klass),GST_TYPE_MSDKVP9ENC,GstMsdkVP9EncClass))
+#define GST_IS_MSDKVP9ENC(obj) \
+  (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_MSDKVP9ENC))
+#define GST_IS_MSDKVP9ENC_CLASS(klass) \
+  (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_MSDKVP9ENC))
 
-typedef struct _GstMsdkVP8Enc GstMsdkVP8Enc;
-typedef struct _GstMsdkVP8EncClass GstMsdkVP8EncClass;
+typedef struct _GstMsdkVP9Enc GstMsdkVP9Enc;
+typedef struct _GstMsdkVP9EncClass GstMsdkVP9EncClass;
 
-struct _GstMsdkVP8Enc
+struct _GstMsdkVP9Enc
 {
   GstMsdkVPXEnc base;
 };
 
-struct _GstMsdkVP8EncClass
+struct _GstMsdkVP9EncClass
 {
   GstMsdkVPXEncClass parent_class;
 };
 
-GType gst_msdkvp8enc_get_type (void);
+GType gst_msdkvp9enc_get_type (void);
 
 G_END_DECLS
 
-#endif /* __GST_MSDKVP8ENC_H__ */
+#endif /* __GST_MSDKVP9ENC_H__ */

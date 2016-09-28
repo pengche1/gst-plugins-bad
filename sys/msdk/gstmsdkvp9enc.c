@@ -1,5 +1,5 @@
 /* GStreamer Intel MSDK plugin
- * Copyright (c) 2016, Oblong Industries, Inc.
+ * Copyright (c) 2016, Intel Corporation
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -33,42 +33,41 @@
 #  include <config.h>
 #endif
 #include <mfxplugin.h>
-#include <mfxvp8.h>
 
-#include "gstmsdkvp8enc.h"
+#include "gstmsdkvp9enc.h"
 
-GST_DEBUG_CATEGORY_EXTERN (gst_msdkvp8enc_debug);
-#define GST_CAT_DEFAULT gst_msdkvp8enc_debug
+GST_DEBUG_CATEGORY_EXTERN (gst_msdkvp9enc_debug);
+#define GST_CAT_DEFAULT gst_msdkvp9enc_debug
 
 static GstStaticPadTemplate src_factory = GST_STATIC_PAD_TEMPLATE ("src",
     GST_PAD_SRC,
     GST_PAD_ALWAYS,
-    GST_STATIC_CAPS ("video/x-vp8, "
+    GST_STATIC_CAPS ("video/x-vp9, "
         "framerate = (fraction) [0/1, MAX], "
         "width = (int) [ 1, MAX ], height = (int) [ 1, MAX ], "
         "profile = (string) { 0, 1, 2, 3 }")
     );
 
-#define gst_msdkvp8enc_parent_class parent_class
-G_DEFINE_TYPE (GstMsdkVP8Enc, gst_msdkvp8enc, GST_TYPE_MSDKVPXENC);
+#define gst_msdkvp9enc_parent_class parent_class
+G_DEFINE_TYPE (GstMsdkVP9Enc, gst_msdkvp9enc, GST_TYPE_MSDKVPXENC);
 
 static const gchar *
-gst_msdkvp8enc_media_type (void)
+gst_msdkvp9enc_media_type (void)
 {
-  return "video/vp8";
+  return "video/vp9";
 }
 
 static gboolean
-gst_msdkvp8enc_configure (GstMsdkEnc * encoder)
+gst_msdkvp9enc_configure (GstMsdkEnc * encoder)
 {
-  GstMsdkVP8Enc *thiz = GST_MSDKVP8ENC (encoder);
+  GstMsdkVP9Enc *thiz = GST_MSDKVP9ENC (encoder);
   GstMsdkVPXEnc *vpx_enc = GST_MSDKVPXENC (encoder);
   mfxSession session;
   mfxStatus status;
 
   if (encoder->hardware) {
     session = msdk_context_get_session (encoder->context);
-    status = MFXVideoUSER_Load (session, &MFX_PLUGINID_VP8E_HW, 1);
+    status = MFXVideoUSER_Load (session, &MFX_PLUGINID_VP9E_HW, 1);
     if (status < MFX_ERR_NONE) {
       GST_ERROR_OBJECT (thiz, "Media SDK Plugin load failed (%s)",
           msdk_status_to_string (status));
@@ -79,7 +78,7 @@ gst_msdkvp8enc_configure (GstMsdkEnc * encoder)
     }
   }
 
-  encoder->param.mfx.CodecId = MFX_CODEC_VP8;
+  encoder->param.mfx.CodecId = MFX_CODEC_VP9;
   encoder->param.mfx.CodecProfile = vpx_enc->profile;
   encoder->param.mfx.CodecLevel = 0;
 
@@ -87,7 +86,7 @@ gst_msdkvp8enc_configure (GstMsdkEnc * encoder)
 }
 
 static void
-gst_msdkvp8enc_class_init (GstMsdkVP8EncClass * klass)
+gst_msdkvp9enc_class_init (GstMsdkVP9EncClass * klass)
 {
   GstElementClass *element_class;
   GstMsdkEncClass *encoder_class;
@@ -97,18 +96,18 @@ gst_msdkvp8enc_class_init (GstMsdkVP8EncClass * klass)
   encoder_class = GST_MSDKENC_CLASS (klass);
   vpx_encoder_class = GST_MSDKVPXENC_CLASS (klass);
 
-  vpx_encoder_class->media_type = GST_DEBUG_FUNCPTR (gst_msdkvp8enc_media_type);
-  encoder_class->configure = GST_DEBUG_FUNCPTR (gst_msdkvp8enc_configure);
+  vpx_encoder_class->media_type = GST_DEBUG_FUNCPTR (gst_msdkvp9enc_media_type);
+  encoder_class->configure = GST_DEBUG_FUNCPTR (gst_msdkvp9enc_configure);
   gst_element_class_set_static_metadata (element_class,
-      "Intel MSDK VP8 encoder",
+      "Intel MSDK VP9 encoder",
       "Codec/Encoder/Video",
-      "VP8 video encoder based on Intel Media SDK",
-      "Josep Torra <jtorra@oblong.com>");
+      "VP9 video encoder based on Intel Media SDK",
+      "D Scott Phillips <scott.d.phillips@intel.com>");
 
   gst_element_class_add_static_pad_template (element_class, &src_factory);
 }
 
 static void
-gst_msdkvp8enc_init (GstMsdkVP8Enc * thiz)
+gst_msdkvp9enc_init (GstMsdkVP9Enc * thiz)
 {
 }

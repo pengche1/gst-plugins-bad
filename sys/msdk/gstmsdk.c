@@ -39,12 +39,15 @@
 #include "gstmsdkh265enc.h"
 #include "gstmsdkmpeg2enc.h"
 #include "gstmsdkvp8enc.h"
+#include "gstmsdkvp9enc.h"
 
 GST_DEBUG_CATEGORY (gst_msdkenc_debug);
 GST_DEBUG_CATEGORY (gst_msdkh264enc_debug);
 GST_DEBUG_CATEGORY (gst_msdkh265enc_debug);
 GST_DEBUG_CATEGORY (gst_msdkmpeg2enc_debug);
+GST_DEBUG_CATEGORY (gst_msdkvpxenc_debug);
 GST_DEBUG_CATEGORY (gst_msdkvp8enc_debug);
+GST_DEBUG_CATEGORY (gst_msdkvp9enc_debug);
 
 static gboolean
 plugin_init (GstPlugin * plugin)
@@ -58,7 +61,9 @@ plugin_init (GstPlugin * plugin)
       "msdkh265enc");
   GST_DEBUG_CATEGORY_INIT (gst_msdkmpeg2enc_debug, "msdkmpeg2enc", 0,
       "msdkmpeg2enc");
+  GST_DEBUG_CATEGORY_INIT (gst_msdkvpxenc_debug, "msdkvpxenc", 0, "msdkvpxenc");
   GST_DEBUG_CATEGORY_INIT (gst_msdkvp8enc_debug, "msdkvp8enc", 0, "msdkvp8enc");
+  GST_DEBUG_CATEGORY_INIT (gst_msdkvp8enc_debug, "msdkvp9enc", 0, "msdkvp9enc");
 
 
   if (!msdk_is_available ())
@@ -75,6 +80,9 @@ plugin_init (GstPlugin * plugin)
 
   ret = gst_element_register (plugin, "msdkvp8enc", GST_RANK_NONE,
       GST_TYPE_MSDKVP8ENC);
+
+  ret = gst_element_register (plugin, "msdkvp9enc", GST_RANK_NONE,
+      GST_TYPE_MSDKVP9ENC);
 
   return ret;
 }
