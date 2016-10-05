@@ -3,6 +3,7 @@ plugin_LTLIBRARIES = libgstmsdk.la
 libgstmsdk_la_SOURCES = \
 	gstmsdkh264enc.c \
 	gstmsdkh265enc.c \
+	gstmsdkmjpegenc.c \
 	gstmsdkmpeg2enc.c \
 	gstmsdkvp8enc.c \
 	gstmsdkenc.c \
@@ -15,6 +16,7 @@ noinst_HEADERS = \
 	msdk.h \
 	gstmsdkh264enc.h \
 	gstmsdkh265enc.h \
+	gstmsdkmjpegenc.h \
 	gstmsdkmpeg2enc.h \
 	gstmsdkvp8enc.h \
 	gstmsdkenc.h
