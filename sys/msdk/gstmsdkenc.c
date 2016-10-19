@@ -111,6 +111,72 @@ gst_msdkenc_rate_control_get_type (void)
 #define gst_msdkenc_parent_class parent_class
 G_DEFINE_TYPE (GstMsdkEnc, gst_msdkenc, GST_TYPE_VIDEO_ENCODER);
 
+static mfxU32
+_finfo_to_mfx_fourcc (const GstVideoFormatInfo * finfo)
+{
+  switch (finfo->format) {
+    case GST_VIDEO_FORMAT_NV12:
+      return MFX_FOURCC_NV12;
+    case GST_VIDEO_FORMAT_YV12:
+      return MFX_FOURCC_YV12;
+    case GST_VIDEO_FORMAT_NV16:
+      return MFX_FOURCC_NV16;
+    case GST_VIDEO_FORMAT_YUY2:
+      return MFX_FOURCC_YUY2;
+    case GST_VIDEO_FORMAT_ARGB:
+      return MFX_FOURCC_RGB4;
+    case GST_VIDEO_FORMAT_GRAY8:
+      return MFX_FOURCC_P8;
+    case GST_VIDEO_FORMAT_P010_10LE:
+      return MFX_FOURCC_P010;
+    case GST_VIDEO_FORMAT_ABGR:
+      return MFX_FOURCC_BGR4;
+    case GST_VIDEO_FORMAT_ARGB64:
+      return MFX_FOURCC_ARGB16;
+    case GST_VIDEO_FORMAT_GRAY16_LE:
+      return MFX_FOURCC_R16;
+    case GST_VIDEO_FORMAT_AYUV:
+      return MFX_FOURCC_AYUV;
+    case GST_VIDEO_FORMAT_UYVY:
+      return MFX_FOURCC_UYVY;
+    default:
+      return 0;
+  }
+}
+
+static mfxU16
+_mfx_fourcc_to_chromaformat (mfxU32 fourcc)
+{
+  switch (fourcc) {
+    case MFX_FOURCC_NV12:
+      return MFX_CHROMAFORMAT_YUV420;
+    case MFX_FOURCC_YV12:
+      return MFX_CHROMAFORMAT_YUV420;
+    case MFX_FOURCC_NV16:
+      return MFX_CHROMAFORMAT_YUV420;
+    case MFX_FOURCC_YUY2:
+      return MFX_CHROMAFORMAT_YUV422;
+    case MFX_FOURCC_RGB4:
+      return MFX_CHROMAFORMAT_YUV444;
+    case MFX_FOURCC_P8:
+      return MFX_CHROMAFORMAT_YUV400;
+    case MFX_FOURCC_P010:
+      return MFX_CHROMAFORMAT_YUV420;
+    case MFX_FOURCC_BGR4:
+      return MFX_CHROMAFORMAT_YUV444;
+    case MFX_FOURCC_ARGB16:
+      return MFX_CHROMAFORMAT_YUV444;
+    case MFX_FOURCC_R16:
+      return MFX_CHROMAFORMAT_YUV400;
+    case MFX_FOURCC_AYUV:
+      return MFX_CHROMAFORMAT_YUV444;
+    case MFX_FOURCC_UYVY:
+      return MFX_CHROMAFORMAT_YUV422;
+    default:
+      return -1;
+  }
+}
+
 void
 gst_msdkenc_add_extra_param (GstMsdkEnc * thiz, mfxExtBuffer * param)
 {
@@ -174,8 +240,9 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
   thiz->param.mfx.FrameInfo.AspectRatioW = info->par_n;
   thiz->param.mfx.FrameInfo.AspectRatioH = info->par_d;
   thiz->param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
-  thiz->param.mfx.FrameInfo.FourCC = MFX_FOURCC_NV12;
-  thiz->param.mfx.FrameInfo.ChromaFormat = MFX_CHROMAFORMAT_YUV420;
+  thiz->param.mfx.FrameInfo.FourCC = _finfo_to_mfx_fourcc (info->finfo);
+  thiz->param.mfx.FrameInfo.ChromaFormat = _mfx_fourcc_to_chromaformat
+      (thiz->param.mfx.FrameInfo.FourCC);
   thiz->param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
 
   /* allow subclass configure further */
@@ -227,20 +294,29 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
       || GST_ROUND_UP_32 (info->height) != info->height) {
     guint width = GST_ROUND_UP_32 (info->width);
     guint height = GST_ROUND_UP_32 (info->height);
-    gsize Y_size = width * height;
-    gsize size = Y_size + (Y_size >> 1);
+    GstVideoInfo round_up_info;
+
+    gst_video_info_init (&round_up_info);
+    gst_video_info_set_format (&round_up_info, info->finfo->format, width,
+        height);
+
     for (i = 0; i < thiz->num_surfaces; i++) {
       mfxFrameSurface1 *surface = &thiz->surfaces[i];
       mfxU8 *data;
-      if (posix_memalign ((void **) &data, 32, size) != 0) {
+      mfxU8 **plane_addr;
+      guint i;
+
+      if (posix_memalign ((void **) &data, 32,
+              GST_VIDEO_INFO_SIZE (&round_up_info)) != 0) {
         GST_ERROR_OBJECT (thiz, "Memory allocation failed");
         goto failed;
       }
 
       surface->Data.MemId = (mfxMemId) data;
       surface->Data.Pitch = width;
-      surface->Data.Y = data;
-      surface->Data.UV = data + Y_size;
+      plane_addr = &surface->Data.Y;
+      for (i = 0; i < GST_VIDEO_INFO_N_PLANES (&round_up_info); i++)
+        *plane_addr++ = data + GST_VIDEO_INFO_PLANE_OFFSET (&round_up_info, i);
     }
 
     GST_DEBUG_OBJECT (thiz,
