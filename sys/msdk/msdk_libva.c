@@ -59,7 +59,7 @@ msdk_use_vaapi_on_context (MsdkContext * context)
   VAStatus va_status;
   mfxStatus status;
   /* maybe /dev/dri/renderD128 */
-  static const gchar *dri_path = "/dev/dri/card0";
+  static const gchar *dri_path = "/dev/dri/renderD128";
 
   fd = open (dri_path, O_RDWR);
   if (fd < 0) {

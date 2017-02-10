@@ -46,7 +46,17 @@ static GstStaticPadTemplate sink_factory = GST_STATIC_PAD_TEMPLATE ("sink",
         "framerate = (fraction) [0/1, MAX], "
         "width = (int) [ 1, MAX ], height = (int) [ 1, MAX ], "
         "stream-format = (string) byte-stream , alignment = (string) au , "
-        "profile = (string) main ")
+        "profile = (string) { main, main-10 } ")
+    );
+
+static GstStaticPadTemplate src_factory = GST_STATIC_PAD_TEMPLATE ("src",
+    GST_PAD_SRC,
+    GST_PAD_ALWAYS,
+    GST_STATIC_CAPS ("video/x-raw, "
+        "format = (string) { NV12, P010 }, "
+        "framerate = (fraction) [0, MAX], "
+        "width = (int) [ 16, MAX ], height = (int) [ 16, MAX ],"
+        "interlace-mode = (string) progressive")
     );
 
 #define gst_msdkh265dec_parent_class parent_class
@@ -56,6 +66,8 @@ static gboolean
 gst_msdkh265dec_configure (GstMsdkDec * decoder)
 {
   GstMsdkH265Dec *h265dec = GST_MSDKH265DEC (decoder);
+  GstStructure *structure;
+  const gchar *profile;
   mfxSession session;
   mfxStatus status;
   const mfxPluginUID *uid;
@@ -77,8 +89,17 @@ gst_msdkh265dec_configure (GstMsdkDec * decoder)
         msdk_status_to_string (status));
   }
 
+  structure = gst_caps_get_structure (decoder->input_state->caps, 0);
+  profile = gst_structure_get_string (structure, "profile");
+
   decoder->param.mfx.CodecId = MFX_CODEC_HEVC;
-  decoder->param.mfx.CodecProfile = MFX_PROFILE_HEVC_MAIN;
+  if (!g_strcmp0 (profile, "main")) {
+    decoder->param.mfx.CodecProfile = MFX_PROFILE_HEVC_MAIN;
+  } else {
+    decoder->param.mfx.CodecProfile = MFX_PROFILE_HEVC_MAIN10;
+    decoder->param.mfx.FrameInfo.FourCC = MFX_FOURCC_P010;
+  }
+
   return TRUE;
 }
 
@@ -100,6 +121,7 @@ gst_msdkh265dec_class_init (GstMsdkH265DecClass * klass)
       "Scott D Phillips <scott.d.phillips@intel.com>");
 
   gst_element_class_add_static_pad_template (element_class, &sink_factory);
+  gst_element_class_add_static_pad_template (element_class, &src_factory);
 }
 
 static void

@@ -257,3 +257,36 @@ msdk_is_available (void)
   msdk_close_session (session);
   return TRUE;
 }
+
+GstVideoFormat
+msdk_fourcc_to_video_format (mfxU32 fourcc)
+{
+  switch (fourcc) {
+    case MFX_FOURCC_NV12:
+      return GST_VIDEO_FORMAT_NV12;
+    case MFX_FOURCC_YV12:
+      return GST_VIDEO_FORMAT_YV12;
+    case MFX_FOURCC_NV16:
+      return GST_VIDEO_FORMAT_NV16;
+    case MFX_FOURCC_YUY2:
+      return GST_VIDEO_FORMAT_YUY2;
+    case MFX_FOURCC_RGB4:
+      return GST_VIDEO_FORMAT_ARGB;
+    case MFX_FOURCC_P8:
+      return GST_VIDEO_FORMAT_GRAY8;
+    case MFX_FOURCC_P010:
+      return GST_VIDEO_FORMAT_P010_10LE;
+    case MFX_FOURCC_BGR4:
+      return GST_VIDEO_FORMAT_ABGR;
+    case MFX_FOURCC_ARGB16:
+      return GST_VIDEO_FORMAT_ARGB64;
+    case MFX_FOURCC_R16:
+      return GST_VIDEO_FORMAT_GRAY16_LE;
+    case MFX_FOURCC_AYUV:
+      return GST_VIDEO_FORMAT_AYUV;
+    case MFX_FOURCC_UYVY:
+      return GST_VIDEO_FORMAT_UYVY;
+    default:
+      return GST_VIDEO_FORMAT_UNKNOWN;
+  }
+}

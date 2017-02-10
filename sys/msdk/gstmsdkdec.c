@@ -354,7 +354,8 @@ gst_msdkdec_set_src_caps (GstMsdkDec * thiz)
 
   output_state =
       gst_video_decoder_set_output_state (GST_VIDEO_DECODER (thiz),
-      GST_VIDEO_FORMAT_NV12, width, height, thiz->input_state);
+      msdk_fourcc_to_video_format (thiz->param.mfx.FrameInfo.FourCC), width,
+      height, thiz->input_state);
 
   msdk_video_alignment (&align, &output_state->info);
   gst_video_info_align (&output_state->info, &align);

@@ -56,6 +56,7 @@ mfxFrameSurface1 *msdk_get_free_surface (mfxFrameSurface1 * surfaces,
 void msdk_frame_to_surface (GstVideoFrame * frame, mfxFrameSurface1 * surface);
 
 const gchar *msdk_status_to_string (mfxStatus status);
+GstVideoFormat msdk_fourcc_to_video_format (mfxU32 fourcc);
 
 G_END_DECLS
 
