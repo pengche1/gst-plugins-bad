@@ -131,12 +131,15 @@ gst_msdkenc_rate_control_get_type (void)
 #define gst_msdkenc_parent_class parent_class
 G_DEFINE_TYPE (GstMsdkEnc, gst_msdkenc, GST_TYPE_VIDEO_ENCODER);
 
+static void gst_msdkenc_unmap_frame (MsdkEncSurface * surface);
+
 static void
 gst_msdkenc_clear_surface (gpointer gsurface)
 {
-  mfxFrameSurface1 *surface = gsurface;
-  if (surface->Data.MemId)
-    _aligned_free (surface->Data.MemId);
+  MsdkEncSurface *surface = gsurface;
+  gst_msdkenc_unmap_frame (surface);
+  if (surface->surface.Data.MemId)
+    _aligned_free (surface->surface.Data.MemId);
   memset (surface, 0, sizeof (*surface));
 }
 
@@ -253,7 +256,7 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
 
   g_array_set_size (thiz->surfaces, request.NumFrameSuggested);
   for (i = 0; i < thiz->surfaces->len; i++) {
-    memcpy (&g_array_index (thiz->surfaces, mfxFrameSurface1, i).Info,
+    memcpy (&g_array_index (thiz->surfaces, MsdkEncSurface, i).surface.Info,
         &thiz->param.mfx.FrameInfo, sizeof (mfxFrameInfo));
   }
   if (GST_ROUND_UP_32 (info->width) != info->width
@@ -264,7 +267,7 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
     gsize size = Y_size + (Y_size >> 1);
     for (i = 0; i < thiz->surfaces->len; i++) {
       mfxFrameSurface1 *surface =
-          &g_array_index (thiz->surfaces, mfxFrameSurface1, i);
+          &g_array_index (thiz->surfaces, MsdkEncSurface, i).surface;
       mfxU8 *data = _aligned_alloc (32, size);
       if (!data) {
         GST_ERROR_OBJECT (thiz, "Memory allocation failed");
@@ -354,65 +357,66 @@ gst_msdkenc_close_encoder (GstMsdkEnc * thiz)
   g_ptr_array_set_size (thiz->extra_params, 0);
 }
 
-typedef struct
-{
-  GstVideoCodecFrame *frame;
-  GstVideoFrame vframe;
-} FrameData;
-
-static FrameData *
-gst_msdkenc_queue_frame (GstMsdkEnc * thiz, GstVideoCodecFrame * frame,
+static gboolean
+gst_msdkenc_map_frame (MsdkEncSurface * surface, GstBuffer * buffer,
     GstVideoInfo * info)
 {
-  GstVideoFrame vframe;
-  FrameData *fdata;
+  if (surface->frame) {
+    gst_video_frame_unmap (surface->frame);
+    memset (surface->frame, 0, sizeof (*surface->frame));
+  } else
+    surface->frame = g_slice_new0 (GstVideoFrame);
 
-  if (!gst_video_frame_map (&vframe, info, frame->input_buffer, GST_MAP_READ))
-    return NULL;
+  if (!gst_video_frame_map (surface->frame, info, buffer, GST_MAP_READ))
+    return FALSE;
 
-  fdata = g_slice_new (FrameData);
-  fdata->frame = gst_video_codec_frame_ref (frame);
-  fdata->vframe = vframe;
-
-  thiz->pending_frames = g_list_prepend (thiz->pending_frames, fdata);
-
-  return fdata;
+  return TRUE;
 }
 
 static void
-gst_msdkenc_dequeue_frame (GstMsdkEnc * thiz, GstVideoCodecFrame * frame)
+gst_msdkenc_unmap_frame (MsdkEncSurface * surface)
 {
-  GList *l;
-
-  for (l = thiz->pending_frames; l; l = l->next) {
-    FrameData *fdata = l->data;
-
-    if (fdata->frame != frame)
-      continue;
-
-    gst_video_frame_unmap (&fdata->vframe);
-    gst_video_codec_frame_unref (fdata->frame);
-    g_slice_free (FrameData, fdata);
-
-    thiz->pending_frames = g_list_delete_link (thiz->pending_frames, l);
-    return;
+  if (surface->frame) {
+    gst_video_frame_unmap (surface->frame);
+    g_slice_free (GstVideoFrame, surface->frame);
   }
+  surface->frame = NULL;
 }
 
 static void
-gst_msdkenc_dequeue_all_frames (GstMsdkEnc * thiz)
+gst_msdkenc_unmap_all_frames (GstMsdkEnc * thiz)
 {
-  GList *l;
+  gint i;
 
-  for (l = thiz->pending_frames; l; l = l->next) {
-    FrameData *fdata = l->data;
+  for (i = 0; i < thiz->surfaces->len; i++)
+    gst_msdkenc_unmap_frame (&g_array_index (thiz->surfaces, MsdkEncSurface,
+            i));
+}
 
-    gst_video_frame_unmap (&fdata->vframe);
-    gst_video_codec_frame_unref (fdata->frame);
-    g_slice_free (FrameData, fdata);
+static MsdkEncSurface *
+gst_msdkenc_find_free_surface (GstMsdkEnc * thiz)
+{
+  gint i;
+
+  for (i = 0; i < thiz->surfaces->len; i++) {
+    MsdkEncSurface *s = &g_array_index (thiz->surfaces, MsdkEncSurface, i);
+    if (!s->surface.Data.Locked)
+      return s;
   }
-  g_list_free (thiz->pending_frames);
-  thiz->pending_frames = NULL;
+
+  return NULL;
+}
+
+static void
+gst_msdkenc_reap_surfaces (GstMsdkEnc * thiz)
+{
+  gint i;
+
+  for (i = 0; i < thiz->surfaces->len; i++) {
+    MsdkEncSurface *s = &g_array_index (thiz->surfaces, MsdkEncSurface, i);
+    if (!s->surface.Data.Locked)
+      gst_msdkenc_unmap_frame (s);
+  }
 }
 
 static MsdkEncTask *
@@ -434,7 +438,6 @@ gst_msdkenc_get_free_task (GstMsdkEnc * thiz)
 static void
 gst_msdkenc_reset_task (MsdkEncTask * task)
 {
-  task->input_frame = NULL;
   task->output_bitstream.DataLength = 0;
   task->sync_point = NULL;
 }
@@ -443,12 +446,13 @@ static GstFlowReturn
 gst_msdkenc_finish_frame (GstMsdkEnc * thiz, MsdkEncTask * task,
     gboolean discard)
 {
-  GstVideoCodecFrame *frame = task->input_frame;
+  GstVideoCodecFrame *frame;
 
   if (!task->sync_point) {
     return GST_FLOW_OK;
   }
 
+  frame = gst_video_encoder_get_oldest_frame (GST_VIDEO_ENCODER (thiz));
   /* Wait for encoding operation to complete */
   MFXVideoCORE_SyncOperation (msdk_context_get_session (thiz->context),
       task->sync_point, 10000);
@@ -476,20 +480,23 @@ gst_msdkenc_finish_frame (GstMsdkEnc * thiz, MsdkEncTask * task,
     gst_msdkenc_reset_task (task);
   }
 
-  gst_msdkenc_dequeue_frame (thiz, frame);
+  gst_msdkenc_reap_surfaces (thiz);
   return gst_video_encoder_finish_frame (GST_VIDEO_ENCODER (thiz), frame);
 }
 
 static GstFlowReturn
-gst_msdkenc_encode_frame (GstMsdkEnc * thiz, mfxFrameSurface1 * surface,
+gst_msdkenc_encode_frame (GstMsdkEnc * thiz, MsdkEncSurface * enc_surface,
     GstVideoCodecFrame * input_frame)
 {
   mfxSession session;
   MsdkEncTask *task;
   mfxStatus status;
+  mfxFrameSurface1 *surface;
+
+  surface = &enc_surface->surface;
 
   if (G_UNLIKELY (thiz->context == NULL)) {
-    gst_msdkenc_dequeue_frame (thiz, input_frame);
+    gst_msdkenc_unmap_frame (enc_surface);
     gst_video_encoder_finish_frame (GST_VIDEO_ENCODER (thiz), input_frame);
     return GST_FLOW_NOT_NEGOTIATED;
   }
@@ -506,20 +513,20 @@ gst_msdkenc_encode_frame (GstMsdkEnc * thiz, mfxFrameSurface1 * surface,
     g_usleep (1000);
   };
 
-  if (task->sync_point) {
-    task->input_frame = input_frame;
+  if (task->sync_point)
     thiz->next_task =
         (task - &g_array_index (thiz->tasks, MsdkEncTask,
             0) + 1) % thiz->tasks->len;
-  }
 
   if (status != MFX_ERR_NONE && status != MFX_ERR_MORE_DATA) {
     GST_ELEMENT_ERROR (thiz, STREAM, ENCODE, ("Encode frame failed."),
         ("MSDK encode return code=%d", status));
-    gst_msdkenc_dequeue_frame (thiz, input_frame);
+    gst_msdkenc_unmap_frame (enc_surface);
     gst_video_encoder_finish_frame (GST_VIDEO_ENCODER (thiz), input_frame);
     return GST_FLOW_ERROR;
   }
+
+  gst_video_codec_frame_unref (input_frame);
 
   /* Ensure that next task is available */
   task = &g_array_index (thiz->tasks, MsdkEncTask, thiz->next_task);
@@ -640,8 +647,7 @@ gst_msdkenc_handle_frame (GstVideoEncoder * encoder, GstVideoCodecFrame * frame)
 {
   GstMsdkEnc *thiz = GST_MSDKENC (encoder);
   GstVideoInfo *info = &thiz->input_state->info;
-  FrameData *fdata;
-  mfxFrameSurface1 *surface;
+  MsdkEncSurface *surface;
 
   if (thiz->reconfig) {
     gst_msdkenc_flush_frames (thiz, FALSE);
@@ -651,20 +657,19 @@ gst_msdkenc_handle_frame (GstVideoEncoder * encoder, GstVideoCodecFrame * frame)
   if (G_UNLIKELY (thiz->context == NULL))
     goto not_inited;
 
-  surface = msdk_get_free_surface (thiz->surfaces);
+  surface = gst_msdkenc_find_free_surface (thiz);
   if (!surface)
     goto invalid_surface;
 
-  fdata = gst_msdkenc_queue_frame (thiz, frame, info);
-  if (!fdata)
+  if (!gst_msdkenc_map_frame (surface, frame->input_buffer, info))
     goto invalid_frame;
 
-  msdk_frame_to_surface (&fdata->vframe, surface);
+  msdk_frame_to_surface (surface->frame, &surface->surface);
   if (frame->pts != GST_CLOCK_TIME_NONE) {
-    surface->Data.TimeStamp =
+    surface->surface.Data.TimeStamp =
         gst_util_uint64_scale (frame->pts, 90000, GST_SECOND);
   } else {
-    surface->Data.TimeStamp = MFX_TIMESTAMP_UNKNOWN;
+    surface->surface.Data.TimeStamp = MFX_TIMESTAMP_UNKNOWN;
   }
 
   return gst_msdkenc_encode_frame (thiz, surface, frame);
@@ -705,7 +710,7 @@ gst_msdkenc_stop (GstVideoEncoder * encoder)
 
   gst_msdkenc_flush_frames (thiz, TRUE);
   gst_msdkenc_close_encoder (thiz);
-  gst_msdkenc_dequeue_all_frames (thiz);
+  gst_msdkenc_unmap_all_frames (thiz);
 
   if (thiz->input_state)
     gst_video_codec_state_unref (thiz->input_state);
@@ -721,7 +726,7 @@ gst_msdkenc_flush (GstVideoEncoder * encoder)
 
   gst_msdkenc_flush_frames (thiz, TRUE);
   gst_msdkenc_close_encoder (thiz);
-  gst_msdkenc_dequeue_all_frames (thiz);
+  gst_msdkenc_unmap_all_frames (thiz);
 
   gst_msdkenc_init_encoder (thiz);
 
@@ -886,6 +891,9 @@ gst_msdkenc_finalize (GObject * object)
     gst_video_codec_state_unref (thiz->input_state);
   thiz->input_state = NULL;
 
+  g_array_unref (thiz->surfaces);
+  thiz->surfaces = NULL;
+
   G_OBJECT_CLASS (parent_class)->finalize (object);
 }
 
@@ -998,7 +1006,7 @@ gst_msdkenc_init (GstMsdkEnc * thiz)
   thiz->ref_frames = PROP_REF_FRAMES_DEFAULT;
   thiz->i_frames = PROP_I_FRAMES_DEFAULT;
   thiz->b_frames = PROP_B_FRAMES_DEFAULT;
-  thiz->surfaces = g_array_new (FALSE, TRUE, sizeof (mfxFrameSurface1));
+  thiz->surfaces = g_array_new (FALSE, TRUE, sizeof (MsdkEncSurface));
   g_array_set_clear_func (thiz->surfaces, gst_msdkenc_clear_surface);
   thiz->tasks = g_array_new (FALSE, TRUE, sizeof (MsdkEncTask));
   g_array_set_clear_func (thiz->tasks, gst_msdkenc_clear_task);
