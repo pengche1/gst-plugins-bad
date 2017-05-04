@@ -68,6 +68,7 @@ struct _GstMsdkEnc
   GList *pending_frames;
 
   /* MFX context */
+  gboolean encoder_initialized;
   MsdkContext *context;
   mfxVideoParam param;
   GArray *surfaces;
