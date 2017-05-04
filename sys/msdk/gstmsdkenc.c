@@ -159,14 +159,12 @@ gst_msdkenc_add_extra_param (GstMsdkEnc * thiz, mfxExtBuffer * param)
 }
 
 static gboolean
-gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
+gst_msdkenc_init_param (GstMsdkEnc * thiz)
 {
   GstMsdkEncClass *klass = GST_MSDKENC_GET_CLASS (thiz);
   GstVideoInfo *info;
   mfxSession session;
   mfxStatus status;
-  mfxFrameAllocRequest request;
-  guint i;
 
   if (!thiz->input_state) {
     GST_DEBUG_OBJECT (thiz, "Have no input state yet");
@@ -237,6 +235,36 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
     GST_WARNING_OBJECT (thiz, "Video Encode Query returned: %s",
         msdk_status_to_string (status));
   }
+
+  GST_OBJECT_UNLOCK (thiz);
+
+  return TRUE;
+
+failed:
+  GST_OBJECT_UNLOCK (thiz);
+  msdk_close_context (thiz->context);
+  thiz->context = NULL;
+  return FALSE;
+}
+
+static gboolean
+gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
+{
+  mfxStatus status;
+  GstVideoInfo *info;
+  mfxSession session;
+  mfxFrameAllocRequest request;
+  guint i;
+
+  session = msdk_context_get_session (thiz->context);
+  if (!session)
+    return FALSE;
+
+  if (!thiz->input_state) {
+    GST_DEBUG_OBJECT (thiz, "Have no input state yet");
+    return FALSE;
+  }
+  info = &thiz->input_state->info;
 
   status = MFXVideoENCODE_QueryIOSurf (session, &thiz->param, &request);
   if (status < MFX_ERR_NONE) {
@@ -320,13 +348,11 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
   thiz->next_task = 0;
 
   thiz->reconfig = FALSE;
-
-  GST_OBJECT_UNLOCK (thiz);
+  thiz->encoder_initialized = TRUE;
 
   return TRUE;
 
 failed:
-  GST_OBJECT_UNLOCK (thiz);
   msdk_close_context (thiz->context);
   thiz->context = NULL;
   return FALSE;
@@ -353,6 +379,7 @@ gst_msdkenc_close_encoder (GstMsdkEnc * thiz)
 
   msdk_close_context (thiz->context);
   thiz->context = NULL;
+  thiz->encoder_initialized = FALSE;
   memset (&thiz->param, 0, sizeof (thiz->param));
   g_ptr_array_set_size (thiz->extra_params, 0);
 }
@@ -480,7 +507,7 @@ gst_msdkenc_encode_frame (GstMsdkEnc * thiz, MsdkEncSurface * enc_surface,
 
   surface = &enc_surface->surface;
 
-  if (G_UNLIKELY (thiz->context == NULL)) {
+  if (G_UNLIKELY (!thiz->encoder_initialized)) {
     gst_msdkenc_unmap_frame (enc_surface);
     gst_video_encoder_finish_frame (GST_VIDEO_ENCODER (thiz), input_frame);
     return GST_FLOW_NOT_NEGOTIATED;
@@ -614,15 +641,11 @@ gst_msdkenc_set_format (GstVideoEncoder * encoder, GstVideoCodecState * state)
       return FALSE;
   }
 
-  if (!gst_msdkenc_init_encoder (thiz))
+  if (!gst_msdkenc_init_param (thiz))
     return FALSE;
 
-  if (!gst_msdkenc_set_src_caps (thiz)) {
-    gst_msdkenc_close_encoder (thiz);
+  if (!gst_msdkenc_set_src_caps (thiz))
     return FALSE;
-  }
-
-  gst_msdkenc_set_latency (thiz);
 
   return TRUE;
 }
@@ -641,8 +664,12 @@ gst_msdkenc_handle_frame (GstVideoEncoder * encoder, GstVideoCodecFrame * frame)
     gst_msdkenc_set_format (encoder, NULL);
   }
 
-  if (G_UNLIKELY (thiz->context == NULL))
-    goto not_inited;
+  if (G_UNLIKELY (!thiz->encoder_initialized)) {
+    if (!gst_msdkenc_init_encoder (thiz))
+      goto not_inited;
+
+    gst_msdkenc_set_latency (thiz);
+  }
 
   task = &g_array_index (thiz->tasks, MsdkEncTask, thiz->next_task);
   flow = gst_msdkenc_finish_frame (thiz, task, FALSE);
@@ -719,8 +746,6 @@ gst_msdkenc_flush (GstVideoEncoder * encoder)
   gst_msdkenc_flush_frames (thiz, TRUE);
   gst_msdkenc_close_encoder (thiz);
   gst_msdkenc_unmap_all_frames (thiz);
-
-  gst_msdkenc_init_encoder (thiz);
 
   return TRUE;
 }
