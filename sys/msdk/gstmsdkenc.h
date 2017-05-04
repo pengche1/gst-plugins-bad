@@ -53,6 +53,7 @@ G_BEGIN_DECLS
 
 typedef struct _GstMsdkEnc GstMsdkEnc;
 typedef struct _GstMsdkEncClass GstMsdkEncClass;
+typedef struct _MsdkEncSurface MsdkEncSurface;
 typedef struct _MsdkEncTask MsdkEncTask;
 
 struct _GstMsdkEnc
@@ -102,9 +103,14 @@ struct _GstMsdkEncClass
   GstCaps *(*set_src_caps) (GstMsdkEnc * encoder);
 };
 
+struct _MsdkEncSurface
+{
+  mfxFrameSurface1 surface;
+  GstVideoFrame *frame;
+};
+
 struct _MsdkEncTask
 {
-  GstVideoCodecFrame *input_frame;
   mfxSyncPoint sync_point;
   mfxBitstream output_bitstream;
 };
