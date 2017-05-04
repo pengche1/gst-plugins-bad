@@ -51,8 +51,7 @@ MsdkContext *msdk_open_context (gboolean hardware);
 void msdk_close_context (MsdkContext * context);
 mfxSession msdk_context_get_session (MsdkContext * context);
 
-mfxFrameSurface1 *msdk_get_free_surface (mfxFrameSurface1 * surfaces,
-    guint size);
+mfxFrameSurface1 *msdk_get_free_surface (GArray * surfaces);
 void msdk_frame_to_surface (GstVideoFrame * frame, mfxFrameSurface1 * surface);
 
 const gchar *msdk_status_to_string (mfxStatus status);

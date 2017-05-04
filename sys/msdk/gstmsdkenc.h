@@ -51,8 +51,6 @@ G_BEGIN_DECLS
 #define GST_IS_MSDKENC_CLASS(klass) \
   (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_MSDKENC))
 
-#define MAX_EXTRA_PARAMS 8
-
 typedef struct _GstMsdkEnc GstMsdkEnc;
 typedef struct _GstMsdkEncClass GstMsdkEncClass;
 typedef struct _MsdkEncTask MsdkEncTask;
@@ -71,14 +69,11 @@ struct _GstMsdkEnc
   /* MFX context */
   MsdkContext *context;
   mfxVideoParam param;
-  guint num_surfaces;
-  mfxFrameSurface1 *surfaces;
-  guint num_tasks;
-  MsdkEncTask *tasks;
+  GArray *surfaces;
+  GArray *tasks;
   guint next_task;
 
-  mfxExtBuffer *extra_params[MAX_EXTRA_PARAMS];
-  guint num_extra_params;
+  GPtrArray *extra_params;
 
   /* element properties */
   gboolean hardware;
