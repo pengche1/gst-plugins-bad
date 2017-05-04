@@ -419,22 +419,6 @@ gst_msdkenc_reap_surfaces (GstMsdkEnc * thiz)
   }
 }
 
-static MsdkEncTask *
-gst_msdkenc_get_free_task (GstMsdkEnc * thiz)
-{
-  MsdkEncTask *task;
-  guint size = thiz->tasks->len;
-  guint start = thiz->next_task;
-  guint i;
-
-  for (i = 0; i < size; i++) {
-    task = &g_array_index (thiz->tasks, MsdkEncTask, (start + i) % size);
-    if (task->sync_point == NULL)
-      return task;
-  }
-  return NULL;
-}
-
 static void
 gst_msdkenc_reset_task (MsdkEncTask * task)
 {
@@ -488,6 +472,7 @@ static GstFlowReturn
 gst_msdkenc_encode_frame (GstMsdkEnc * thiz, MsdkEncSurface * enc_surface,
     GstVideoCodecFrame * input_frame)
 {
+  GstFlowReturn flow;
   mfxSession session;
   MsdkEncTask *task;
   mfxStatus status;
@@ -502,7 +487,10 @@ gst_msdkenc_encode_frame (GstMsdkEnc * thiz, MsdkEncSurface * enc_surface,
   }
   session = msdk_context_get_session (thiz->context);
 
-  task = gst_msdkenc_get_free_task (thiz);
+  task = &g_array_index (thiz->tasks, MsdkEncTask, thiz->next_task);
+  flow = gst_msdkenc_finish_frame (thiz, task, FALSE);
+  if (flow != GST_FLOW_OK)
+    goto error;
 
   for (;;) {
     status = MFXVideoENCODE_EncodeFrameAsync (session, NULL, surface,
@@ -514,23 +502,23 @@ gst_msdkenc_encode_frame (GstMsdkEnc * thiz, MsdkEncSurface * enc_surface,
   };
 
   if (task->sync_point)
-    thiz->next_task =
-        (task - &g_array_index (thiz->tasks, MsdkEncTask,
-            0) + 1) % thiz->tasks->len;
+    thiz->next_task = (thiz->next_task + 1) % thiz->tasks->len;
 
   if (status != MFX_ERR_NONE && status != MFX_ERR_MORE_DATA) {
-    GST_ELEMENT_ERROR (thiz, STREAM, ENCODE, ("Encode frame failed."),
-        ("MSDK encode return code=%d", status));
-    gst_msdkenc_unmap_frame (enc_surface);
-    gst_video_encoder_finish_frame (GST_VIDEO_ENCODER (thiz), input_frame);
-    return GST_FLOW_ERROR;
+    flow = GST_FLOW_ERROR;
+    goto error;
   }
 
   gst_video_codec_frame_unref (input_frame);
+  return GST_FLOW_OK;
 
-  /* Ensure that next task is available */
-  task = &g_array_index (thiz->tasks, MsdkEncTask, thiz->next_task);
-  return gst_msdkenc_finish_frame (thiz, task, FALSE);
+error:
+  GST_ELEMENT_ERROR (thiz, STREAM, ENCODE, ("Encode frame failed."),
+      ("MSDK encode return code=%d", status));
+  gst_msdkenc_unmap_frame (enc_surface);
+  gst_video_encoder_finish_frame (GST_VIDEO_ENCODER (thiz), input_frame);
+  gst_video_codec_frame_unref (input_frame);
+  return flow;
 }
 
 static guint
