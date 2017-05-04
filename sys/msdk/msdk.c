@@ -37,29 +37,27 @@ GST_DEBUG_CATEGORY_EXTERN (gst_msdkenc_debug);
 #define INVALID_INDEX         ((guint) -1)
 
 static inline guint
-msdk_get_free_surface_index (mfxFrameSurface1 * surfaces, guint size)
+msdk_get_free_surface_index (GArray * surfaces)
 {
-  if (surfaces) {
-    guint i;
+  guint i;
 
-    for (i = 0; i < size; i++) {
-      if (!surfaces[i].Data.Locked)
-        return i;
-    }
+  for (i = 0; i < surfaces->len; i++) {
+    if (!g_array_index (surfaces, mfxFrameSurface1, i).Data.Locked)
+      return i;
   }
 
   return INVALID_INDEX;
 }
 
 mfxFrameSurface1 *
-msdk_get_free_surface (mfxFrameSurface1 * surfaces, guint size)
+msdk_get_free_surface (GArray * surfaces)
 {
   guint idx = INVALID_INDEX;
   guint i;
 
   /* Poll the pool for a maximum of 20 milisecnds */
   for (i = 0; i < 2000; i++) {
-    idx = msdk_get_free_surface_index (surfaces, size);
+    idx = msdk_get_free_surface_index (surfaces);
 
     if (idx != INVALID_INDEX)
       break;
@@ -67,7 +65,8 @@ msdk_get_free_surface (mfxFrameSurface1 * surfaces, guint size)
     g_usleep (10);
   }
 
-  return (idx == INVALID_INDEX ? NULL : &surfaces[idx]);
+  return (idx == INVALID_INDEX ? NULL : &g_array_index (surfaces,
+          mfxFrameSurface1, idx));
 }
 
 /* FIXME: Only NV12 is supported by now, add other YUV formats */

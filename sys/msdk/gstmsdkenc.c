@@ -131,13 +131,28 @@ gst_msdkenc_rate_control_get_type (void)
 #define gst_msdkenc_parent_class parent_class
 G_DEFINE_TYPE (GstMsdkEnc, gst_msdkenc, GST_TYPE_VIDEO_ENCODER);
 
+static void
+gst_msdkenc_clear_surface (gpointer gsurface)
+{
+  mfxFrameSurface1 *surface = gsurface;
+  if (surface->Data.MemId)
+    _aligned_free (surface->Data.MemId);
+  memset (surface, 0, sizeof (*surface));
+}
+
+static void
+gst_msdkenc_clear_task (gpointer gtask)
+{
+  MsdkEncTask *task = gtask;
+  if (task->output_bitstream.Data)
+    _aligned_free (task->output_bitstream.Data);
+  memset (task, 0, sizeof (*task));
+}
+
 void
 gst_msdkenc_add_extra_param (GstMsdkEnc * thiz, mfxExtBuffer * param)
 {
-  if (thiz->num_extra_params < MAX_EXTRA_PARAMS) {
-    thiz->extra_params[thiz->num_extra_params] = param;
-    thiz->num_extra_params++;
-  }
+  g_ptr_array_add (thiz->extra_params, param);
 }
 
 static gboolean
@@ -196,7 +211,6 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
   thiz->param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
   thiz->param.mfx.FrameInfo.FourCC = MFX_FOURCC_NV12;
   thiz->param.mfx.FrameInfo.ChromaFormat = MFX_CHROMAFORMAT_YUV420;
-  thiz->param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
 
   /* allow subclass configure further */
   if (klass->configure) {
@@ -204,9 +218,9 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
       goto failed;
   }
 
-  if (thiz->num_extra_params) {
-    thiz->param.NumExtParam = thiz->num_extra_params;
-    thiz->param.ExtParam = thiz->extra_params;
+  if (thiz->extra_params->len) {
+    thiz->param.NumExtParam = thiz->extra_params->len;
+    thiz->param.ExtParam = (mfxExtBuffer **) thiz->extra_params->pdata;
   }
 
   session = msdk_context_get_session (thiz->context);
@@ -237,11 +251,10 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
     goto failed;
   }
 
-  thiz->num_surfaces = request.NumFrameSuggested;
-  thiz->surfaces = g_new0 (mfxFrameSurface1, thiz->num_surfaces);
-  for (i = 0; i < thiz->num_surfaces; i++) {
-    memcpy (&thiz->surfaces[i].Info, &thiz->param.mfx.FrameInfo,
-        sizeof (mfxFrameInfo));
+  g_array_set_size (thiz->surfaces, request.NumFrameSuggested);
+  for (i = 0; i < thiz->surfaces->len; i++) {
+    memcpy (&g_array_index (thiz->surfaces, mfxFrameSurface1, i).Info,
+        &thiz->param.mfx.FrameInfo, sizeof (mfxFrameInfo));
   }
   if (GST_ROUND_UP_32 (info->width) != info->width
       || GST_ROUND_UP_32 (info->height) != info->height) {
@@ -249,8 +262,9 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
     guint height = GST_ROUND_UP_32 (info->height);
     gsize Y_size = width * height;
     gsize size = Y_size + (Y_size >> 1);
-    for (i = 0; i < thiz->num_surfaces; i++) {
-      mfxFrameSurface1 *surface = &thiz->surfaces[i];
+    for (i = 0; i < thiz->surfaces->len; i++) {
+      mfxFrameSurface1 *surface =
+          &g_array_index (thiz->surfaces, mfxFrameSurface1, i);
       mfxU8 *data = _aligned_alloc (32, size);
       if (!data) {
         GST_ERROR_OBJECT (thiz, "Memory allocation failed");
@@ -268,7 +282,7 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
   }
 
   GST_DEBUG_OBJECT (thiz, "Required %d surfaces (%d suggested), allocated %d",
-      request.NumFrameMin, request.NumFrameSuggested, thiz->num_surfaces);
+      request.NumFrameMin, request.NumFrameSuggested, thiz->surfaces->len);
 
   status = MFXVideoENCODE_Init (session, &thiz->param);
   if (status < MFX_ERR_NONE) {
@@ -289,17 +303,16 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
         msdk_status_to_string (status));
   }
 
-  thiz->num_tasks = thiz->param.AsyncDepth;
-  thiz->tasks = g_new0 (MsdkEncTask, thiz->num_tasks);
-  for (i = 0; i < thiz->num_tasks; i++) {
-    thiz->tasks[i].output_bitstream.Data = _aligned_alloc (32,
-        thiz->param.mfx.BufferSizeInKB * 1024);
-    if (!thiz->tasks[i].output_bitstream.Data) {
+  g_array_set_size (thiz->tasks, thiz->param.AsyncDepth);
+  for (i = 0; i < thiz->tasks->len; i++) {
+    MsdkEncTask *task = &g_array_index (thiz->tasks, MsdkEncTask, i);
+    task->output_bitstream.Data =
+        _aligned_alloc (32, thiz->param.mfx.BufferSizeInKB * 1024);
+    if (!task->output_bitstream.Data) {
       GST_ERROR_OBJECT (thiz, "Memory allocation failed");
       goto failed;
     }
-    thiz->tasks[i].output_bitstream.MaxLength =
-        thiz->param.mfx.BufferSizeInKB * 1024;
+    task->output_bitstream.MaxLength = thiz->param.mfx.BufferSizeInKB * 1024;
   }
   thiz->next_task = 0;
 
@@ -319,7 +332,6 @@ failed:
 static void
 gst_msdkenc_close_encoder (GstMsdkEnc * thiz)
 {
-  guint i;
   mfxStatus status;
 
   if (!thiz->context)
@@ -333,29 +345,13 @@ gst_msdkenc_close_encoder (GstMsdkEnc * thiz)
         msdk_status_to_string (status));
   }
 
-  if (thiz->tasks) {
-    for (i = 0; i < thiz->num_tasks; i++) {
-      MsdkEncTask *task = &thiz->tasks[i];
-      if (task->output_bitstream.Data) {
-        _aligned_free (task->output_bitstream.Data);
-      }
-    }
-  }
-  g_free (thiz->tasks);
-  thiz->tasks = NULL;
-
-  for (i = 0; i < thiz->num_surfaces; i++) {
-    mfxFrameSurface1 *surface = &thiz->surfaces[i];
-    if (surface->Data.MemId)
-      _aligned_free (surface->Data.MemId);
-  }
-  g_free (thiz->surfaces);
-  thiz->surfaces = NULL;
+  g_array_set_size (thiz->tasks, 0);
+  g_array_set_size (thiz->surfaces, 0);
 
   msdk_close_context (thiz->context);
   thiz->context = NULL;
   memset (&thiz->param, 0, sizeof (thiz->param));
-  thiz->num_extra_params = 0;
+  g_ptr_array_set_size (thiz->extra_params, 0);
 }
 
 typedef struct
@@ -422,17 +418,15 @@ gst_msdkenc_dequeue_all_frames (GstMsdkEnc * thiz)
 static MsdkEncTask *
 gst_msdkenc_get_free_task (GstMsdkEnc * thiz)
 {
-  MsdkEncTask *tasks = thiz->tasks;
-  guint size = thiz->num_tasks;
+  MsdkEncTask *task;
+  guint size = thiz->tasks->len;
   guint start = thiz->next_task;
   guint i;
 
-  if (tasks) {
-    for (i = 0; i < size; i++) {
-      guint t = (start + i) % size;
-      if (tasks[t].sync_point == NULL)
-        return &tasks[t];
-    }
+  for (i = 0; i < size; i++) {
+    task = &g_array_index (thiz->tasks, MsdkEncTask, (start + i) % size);
+    if (task->sync_point == NULL)
+      return task;
   }
   return NULL;
 }
@@ -514,7 +508,9 @@ gst_msdkenc_encode_frame (GstMsdkEnc * thiz, mfxFrameSurface1 * surface,
 
   if (task->sync_point) {
     task->input_frame = input_frame;
-    thiz->next_task = ((task - thiz->tasks) + 1) % thiz->num_tasks;
+    thiz->next_task =
+        (task - &g_array_index (thiz->tasks, MsdkEncTask,
+            0) + 1) % thiz->tasks->len;
   }
 
   if (status != MFX_ERR_NONE && status != MFX_ERR_MORE_DATA) {
@@ -526,14 +522,14 @@ gst_msdkenc_encode_frame (GstMsdkEnc * thiz, mfxFrameSurface1 * surface,
   }
 
   /* Ensure that next task is available */
-  task = thiz->tasks + thiz->next_task;
+  task = &g_array_index (thiz->tasks, MsdkEncTask, thiz->next_task);
   return gst_msdkenc_finish_frame (thiz, task, FALSE);
 }
 
 static guint
 gst_msdkenc_maximum_delayed_frames (GstMsdkEnc * thiz)
 {
-  return thiz->num_tasks;
+  return thiz->tasks->len;
 }
 
 static void
@@ -571,9 +567,10 @@ gst_msdkenc_flush_frames (GstMsdkEnc * thiz, gboolean discard)
   if (!thiz->tasks)
     return;
 
-  for (i = 0; i < thiz->num_tasks; i++) {
-    gst_msdkenc_finish_frame (thiz, &thiz->tasks[t], discard);
-    t = (t + 1) % thiz->num_tasks;
+  for (i = 0; i < thiz->tasks->len; i++) {
+    gst_msdkenc_finish_frame (thiz, &g_array_index (thiz->tasks, MsdkEncTask,
+            t), discard);
+    t = (t + 1) % thiz->tasks->len;
   }
 }
 
@@ -654,7 +651,7 @@ gst_msdkenc_handle_frame (GstVideoEncoder * encoder, GstVideoCodecFrame * frame)
   if (G_UNLIKELY (thiz->context == NULL))
     goto not_inited;
 
-  surface = msdk_get_free_surface (thiz->surfaces, thiz->num_surfaces);
+  surface = msdk_get_free_surface (thiz->surfaces);
   if (!surface)
     goto invalid_surface;
 
@@ -1001,4 +998,9 @@ gst_msdkenc_init (GstMsdkEnc * thiz)
   thiz->ref_frames = PROP_REF_FRAMES_DEFAULT;
   thiz->i_frames = PROP_I_FRAMES_DEFAULT;
   thiz->b_frames = PROP_B_FRAMES_DEFAULT;
+  thiz->surfaces = g_array_new (FALSE, TRUE, sizeof (mfxFrameSurface1));
+  g_array_set_clear_func (thiz->surfaces, gst_msdkenc_clear_surface);
+  thiz->tasks = g_array_new (FALSE, TRUE, sizeof (MsdkEncTask));
+  g_array_set_clear_func (thiz->tasks, gst_msdkenc_clear_task);
+  thiz->extra_params = g_ptr_array_new ();
 }
