@@ -248,13 +248,16 @@ failed:
 }
 
 static gboolean
-gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
+gst_msdkenc_init_encoder (GstMsdkEnc * thiz, GstBuffer * input_buffer)
 {
   mfxStatus status;
-  GstVideoInfo *info;
+  GstVideoInfo *info, sink_info;
+  GstVideoFrame frame;
+  GstCaps *sink_caps;
   mfxSession session;
   mfxFrameAllocRequest request;
   guint i;
+  gboolean need_aligning_copy = FALSE;
 
   session = msdk_context_get_session (thiz->context);
   if (!session)
@@ -287,25 +290,33 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
     memcpy (&g_array_index (thiz->surfaces, MsdkEncSurface, i).surface.Info,
         &thiz->param.mfx.FrameInfo, sizeof (mfxFrameInfo));
   }
-  if (GST_ROUND_UP_32 (info->width) != info->width
-      || GST_ROUND_UP_32 (info->height) != info->height) {
-    guint width = GST_ROUND_UP_32 (info->width);
-    guint height = GST_ROUND_UP_32 (info->height);
-    gsize Y_size = width * height;
-    gsize size = Y_size + (Y_size >> 1);
+
+  sink_caps = gst_pad_get_current_caps (GST_VIDEO_ENCODER_SINK_PAD (thiz));
+  if (!gst_video_info_from_caps (&sink_info, sink_caps)) {
+    gst_caps_unref (sink_caps);
+    goto failed;
+  }
+  sink_info.size = gst_buffer_get_size (input_buffer);
+  gst_caps_unref (sink_caps);
+  if (!gst_video_frame_map (&frame, &sink_info, input_buffer, GST_MAP_READ))
+    goto failed;
+  need_aligning_copy = !gst_video_info_is_equal (info, &frame.info);
+  gst_video_frame_unmap (&frame);
+
+  if (need_aligning_copy) {
     for (i = 0; i < thiz->surfaces->len; i++) {
       mfxFrameSurface1 *surface =
           &g_array_index (thiz->surfaces, MsdkEncSurface, i).surface;
-      mfxU8 *data = _aligned_alloc (32, size);
+      mfxU8 *data = _aligned_alloc (32, GST_VIDEO_INFO_SIZE (info));
       if (!data) {
         GST_ERROR_OBJECT (thiz, "Memory allocation failed");
         goto failed;
       }
 
       surface->Data.MemId = (mfxMemId) data;
-      surface->Data.Pitch = width;
-      surface->Data.Y = data;
-      surface->Data.UV = data + Y_size;
+      surface->Data.Pitch = GST_VIDEO_INFO_PLANE_STRIDE (info, 0);
+      surface->Data.Y = data + GST_VIDEO_INFO_PLANE_OFFSET (info, 0);
+      surface->Data.UV = data + GST_VIDEO_INFO_PLANE_OFFSET (info, 1);
     }
 
     GST_DEBUG_OBJECT (thiz,
@@ -593,6 +604,14 @@ gst_msdkenc_flush_frames (GstMsdkEnc * thiz, gboolean discard)
   }
 }
 
+static void
+gst_msdkenc_align_input_info (GstMsdkEnc * thiz)
+{
+  GstVideoAlignment alignment;
+  msdk_video_alignment (&alignment, &thiz->input_state->info);
+  gst_video_info_align (&thiz->input_state->info, &alignment);
+}
+
 static gboolean
 gst_msdkenc_set_src_caps (GstMsdkEnc * thiz)
 {
@@ -636,6 +655,8 @@ gst_msdkenc_set_format (GstVideoEncoder * encoder, GstVideoCodecState * state)
     thiz->input_state = gst_video_codec_state_ref (state);
   }
 
+  gst_msdkenc_align_input_info (thiz);
+
   if (klass->set_format) {
     if (!klass->set_format (thiz))
       return FALSE;
@@ -665,7 +686,7 @@ gst_msdkenc_handle_frame (GstVideoEncoder * encoder, GstVideoCodecFrame * frame)
   }
 
   if (G_UNLIKELY (!thiz->encoder_initialized)) {
-    if (!gst_msdkenc_init_encoder (thiz))
+    if (!gst_msdkenc_init_encoder (thiz, frame->input_buffer))
       goto not_inited;
 
     gst_msdkenc_set_latency (thiz);
@@ -765,17 +786,50 @@ gst_msdkenc_propose_allocation (GstVideoEncoder * encoder, GstQuery * query)
 {
   GstMsdkEnc *thiz = GST_MSDKENC (encoder);
   GstVideoInfo *info;
+  GstVideoAlignment alignment;
+  GstCaps *caps;
   guint num_buffers;
-
-  gst_query_add_allocation_meta (query, GST_VIDEO_META_API_TYPE, NULL);
+  gint i;
+  gboolean need_pool;
 
   if (!thiz->input_state)
     return FALSE;
-
   info = &thiz->input_state->info;
+  msdk_video_alignment (&alignment, info);
+
+  gst_query_parse_allocation (query, &caps, &need_pool);
+  gst_query_add_allocation_meta (query, GST_VIDEO_META_API_TYPE, NULL);
   num_buffers = gst_msdkenc_maximum_delayed_frames (thiz) + 1;
 
-  gst_query_add_allocation_pool (query, NULL, info->size, num_buffers, 0);
+  if (need_pool)
+    gst_query_add_allocation_pool (query, gst_video_buffer_pool_new (), 0, 0,
+        0);
+
+  for (i = 0; i < gst_query_get_n_allocation_pools (query); i++) {
+    GstBufferPool *pool;
+    GstStructure *config;
+    guint size, min_buffers, max_buffers;
+    gst_query_parse_nth_allocation_pool (query, i, &pool, &size, &min_buffers,
+        &max_buffers);
+    if (size < GST_VIDEO_INFO_SIZE (info))
+      size = GST_VIDEO_INFO_SIZE (info);
+    if (min_buffers < num_buffers)
+      min_buffers = num_buffers;
+    if (max_buffers && max_buffers < num_buffers)
+      max_buffers = num_buffers;
+    config = gst_buffer_pool_get_config (pool);
+    gst_buffer_pool_config_add_option (config,
+        GST_BUFFER_POOL_OPTION_VIDEO_META);
+    gst_buffer_pool_config_add_option (config,
+        GST_BUFFER_POOL_OPTION_VIDEO_ALIGNMENT);
+    gst_buffer_pool_config_set_video_alignment (config, &alignment);
+    gst_buffer_pool_config_set_params (config, caps, size, min_buffers,
+        max_buffers);
+    gst_buffer_pool_set_config (pool, config);
+    gst_query_set_nth_allocation_pool (query, i, pool, size, min_buffers,
+        max_buffers);
+    gst_object_unref (pool);
+  }
 
   return GST_VIDEO_ENCODER_CLASS (parent_class)->propose_allocation (encoder,
       query);
