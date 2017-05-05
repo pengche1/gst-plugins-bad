@@ -36,6 +36,19 @@ GST_DEBUG_CATEGORY_EXTERN (gst_msdkenc_debug);
 
 #define INVALID_INDEX         ((guint) -1)
 
+void
+msdk_video_alignment (GstVideoAlignment * alignment, GstVideoInfo * info)
+{
+  guint i, height;
+
+  height = GST_VIDEO_INFO_HEIGHT (info);
+  gst_video_alignment_reset (alignment);
+  for (i = 0; i < GST_VIDEO_INFO_N_PLANES (info); i++)
+    alignment->stride_align[i] = 31;    /* 32-byte alignment */
+  if (height & 31)
+    alignment->padding_bottom = 32 - (height & 31);
+}
+
 /* FIXME: Only NV12 is supported by now, add other YUV formats */
 void
 msdk_frame_to_surface (GstVideoFrame * frame, mfxFrameSurface1 * surface)

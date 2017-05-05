@@ -70,19 +70,6 @@ typedef struct _MsdkSurface
   GstVideoFrame copy;
 } MsdkSurface;
 
-static void
-msdk_video_alignment (GstVideoAlignment * alignment, GstVideoInfo * info)
-{
-  guint i, height;
-
-  height = GST_VIDEO_INFO_HEIGHT (info);
-  gst_video_alignment_reset (alignment);
-  for (i = 0; i < GST_VIDEO_INFO_N_PLANES (info); i++)
-    alignment->stride_align[i] = 31;    /* 32-byte alignment */
-  if (height & 31)
-    alignment->padding_bottom = 32 - (height & 31);
-}
-
 static GstFlowReturn
 allocate_output_buffer (GstMsdkDec * thiz, GstBuffer ** buffer)
 {
