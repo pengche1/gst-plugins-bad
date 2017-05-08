@@ -488,9 +488,6 @@ gst_msdkenc_encode_frame (GstMsdkEnc * thiz, MsdkEncSurface * enc_surface,
   session = msdk_context_get_session (thiz->context);
 
   task = &g_array_index (thiz->tasks, MsdkEncTask, thiz->next_task);
-  flow = gst_msdkenc_finish_frame (thiz, task, FALSE);
-  if (flow != GST_FLOW_OK)
-    goto error;
 
   for (;;) {
     status = MFXVideoENCODE_EncodeFrameAsync (session, NULL, surface,
@@ -634,8 +631,10 @@ static GstFlowReturn
 gst_msdkenc_handle_frame (GstVideoEncoder * encoder, GstVideoCodecFrame * frame)
 {
   GstMsdkEnc *thiz = GST_MSDKENC (encoder);
+  MsdkEncTask *task;
   GstVideoInfo *info = &thiz->input_state->info;
   MsdkEncSurface *surface;
+  GstFlowReturn flow;
 
   if (thiz->reconfig) {
     gst_msdkenc_flush_frames (thiz, FALSE);
@@ -644,6 +643,11 @@ gst_msdkenc_handle_frame (GstVideoEncoder * encoder, GstVideoCodecFrame * frame)
 
   if (G_UNLIKELY (thiz->context == NULL))
     goto not_inited;
+
+  task = &g_array_index (thiz->tasks, MsdkEncTask, thiz->next_task);
+  flow = gst_msdkenc_finish_frame (thiz, task, FALSE);
+  if (flow != GST_FLOW_OK)
+    return flow;
 
   surface = gst_msdkenc_find_free_surface (thiz);
   if (!surface)
