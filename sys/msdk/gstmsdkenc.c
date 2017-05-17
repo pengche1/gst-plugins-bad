@@ -45,6 +45,7 @@
 #include <stdlib.h>
 
 #include "gstmsdkenc.h"
+#include "gstmsdkopaque.h"
 
 static inline void *
 _aligned_alloc (size_t alignment, size_t size)
@@ -464,6 +465,40 @@ gst_msdkenc_reset_task (MsdkEncTask * task)
   task->sync_point = NULL;
 }
 
+static GstStructure *
+gst_msdkenc_opaque_meta_params (GstMsdkEnc * thiz)
+{
+  MsdkContext *context;
+  mfxSession session;
+  mfxStatus status;
+  mfxVideoParam param;
+  mfxFrameAllocRequest request;
+
+  memcpy (&param, &thiz->param, sizeof (param));
+  param.IOPattern = MFX_IOPATTERN_IN_OPAQUE_MEMORY;
+
+  context = msdk_open_context (thiz->hardware);
+  if (!context)
+    return NULL;
+
+  session = msdk_context_get_session (context);
+  status = MFXVideoENCODE_QueryIOSurf (session, &param, &request);
+  msdk_close_context (context);
+
+  if (status < MFX_ERR_NONE) {
+    GST_ERROR_OBJECT (thiz, "Video Encode QueryIOSurf failed (%s)",
+        msdk_status_to_string (status));
+    return NULL;
+  } else if (status > MFX_ERR_NONE) {
+    GST_WARNING_OBJECT (thiz, "Video Encode QueryIOSurf returned: %s",
+        msdk_status_to_string (status));
+  }
+
+  return gst_structure_new ("GstMsdkOpaqueMeta", "gst.msdk.opaque.num_surfaces",
+      G_TYPE_UINT, (guint) request.NumFrameSuggested, "gst.msdk.opaque.type",
+      G_TYPE_UINT, (guint) request.Type, NULL);
+}
+
 static GstFlowReturn
 gst_msdkenc_finish_frame (GstMsdkEnc * thiz, MsdkEncTask * task,
     gboolean discard)
@@ -788,6 +823,7 @@ gst_msdkenc_propose_allocation (GstVideoEncoder * encoder, GstQuery * query)
   GstVideoInfo *info;
   GstVideoAlignment alignment;
   GstCaps *caps;
+  GstStructure *opaque_params;
   guint num_buffers;
   gint i;
   gboolean need_pool;
@@ -799,6 +835,12 @@ gst_msdkenc_propose_allocation (GstVideoEncoder * encoder, GstQuery * query)
 
   gst_query_parse_allocation (query, &caps, &need_pool);
   gst_query_add_allocation_meta (query, GST_VIDEO_META_API_TYPE, NULL);
+  opaque_params = gst_msdkenc_opaque_meta_params (thiz);
+  if (opaque_params) {
+    gst_query_add_allocation_meta (query, GST_MSDK_OPAQUE_META_API_TYPE,
+        opaque_params);
+    gst_structure_free (opaque_params);
+  }
   num_buffers = gst_msdkenc_maximum_delayed_frames (thiz) + 1;
 
   if (need_pool)
