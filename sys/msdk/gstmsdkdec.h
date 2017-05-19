@@ -66,6 +66,7 @@ struct _GstMsdkDec
   GstVideoInfo pool_info;
 
   /* MFX context */
+  gboolean decoder_initialized;
   MsdkContext *context;
   mfxVideoParam param;
   GPtrArray *extra_params;

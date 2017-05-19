@@ -36,6 +36,7 @@
 #include <stdlib.h>
 
 #include "gstmsdkdec.h"
+#include "gstmsdkopaque.h"
 
 GST_DEBUG_CATEGORY_EXTERN (gst_msdkdec_debug);
 #define GST_CAT_DEFAULT gst_msdkdec_debug
@@ -202,18 +203,17 @@ gst_msdkdec_close_decoder (GstMsdkDec * thiz)
 
   msdk_close_context (thiz->context);
   thiz->context = NULL;
+  thiz->decoder_initialized = FALSE;
   memset (&thiz->param, 0, sizeof (thiz->param));
 }
 
 static gboolean
-gst_msdkdec_init_decoder (GstMsdkDec * thiz)
+gst_msdkdec_init_param (GstMsdkDec * thiz)
 {
   GstMsdkDecClass *klass = GST_MSDKDEC_GET_CLASS (thiz);
   GstVideoInfo *info;
   mfxSession session;
   mfxStatus status;
-  mfxFrameAllocRequest request;
-  guint i;
 
   if (!thiz->input_state) {
     GST_DEBUG_OBJECT (thiz, "Have no input state yet");
@@ -269,6 +269,27 @@ gst_msdkdec_init_decoder (GstMsdkDec * thiz)
         msdk_status_to_string (status));
   }
 
+  GST_OBJECT_UNLOCK (thiz);
+
+  return TRUE;
+
+failed:
+  GST_OBJECT_UNLOCK (thiz);
+  msdk_close_context (thiz->context);
+  thiz->context = NULL;
+  return FALSE;
+}
+
+static gboolean
+gst_msdkdec_init_decoder (GstMsdkDec * thiz)
+{
+  mfxStatus status;
+  mfxSession session;
+  mfxFrameAllocRequest request;
+  guint i;
+
+  session = msdk_context_get_session (thiz->context);
+
   status = MFXVideoDECODE_QueryIOSurf (session, &thiz->param, &request);
   if (status < MFX_ERR_NONE) {
     GST_ERROR_OBJECT (thiz, "Query IO surfaces failed (%s)",
@@ -318,12 +339,10 @@ gst_msdkdec_init_decoder (GstMsdkDec * thiz)
   g_array_set_size (thiz->tasks, thiz->param.AsyncDepth);
   thiz->next_task = 0;
 
-  GST_OBJECT_UNLOCK (thiz);
-
+  thiz->decoder_initialized = TRUE;
   return TRUE;
 
 failed:
-  GST_OBJECT_UNLOCK (thiz);
   msdk_close_context (thiz->context);
   thiz->context = NULL;
   return FALSE;
@@ -428,6 +447,7 @@ gst_msdkdec_close (GstVideoDecoder * decoder)
   GstMsdkDec *thiz = GST_MSDKDEC (decoder);
   if (thiz->context) {
     msdk_close_context (thiz->context);
+    thiz->decoder_initialized = FALSE;
     thiz->context = NULL;
   }
   return TRUE;
@@ -459,7 +479,7 @@ gst_msdkdec_set_format (GstVideoDecoder * decoder, GstVideoCodecState * state)
     gst_video_codec_state_unref (thiz->input_state);
   thiz->input_state = gst_video_codec_state_ref (state);
 
-  if (!gst_msdkdec_init_decoder (thiz))
+  if (!gst_msdkdec_init_param (thiz))
     return FALSE;
 
   if (!gst_msdkdec_set_src_caps (thiz)) {
@@ -495,10 +515,6 @@ gst_msdkdec_handle_frame (GstVideoDecoder * decoder, GstVideoCodecFrame * frame)
 
   session = msdk_context_get_session (thiz->context);
   for (;;) {
-    task = &g_array_index (thiz->tasks, MsdkDecTask, thiz->next_task);
-    flow = gst_msdkdec_finish_task (thiz, task);
-    if (flow != GST_FLOW_OK)
-      goto exit;
     if (!surface) {
       flow = allocate_output_buffer (thiz, &buffer);
       if (flow != GST_FLOW_OK)
@@ -524,6 +540,11 @@ gst_msdkdec_handle_frame (GstVideoDecoder * decoder, GstVideoCodecFrame * frame)
         }
       }
     }
+
+    task = &g_array_index (thiz->tasks, MsdkDecTask, thiz->next_task);
+    flow = gst_msdkdec_finish_task (thiz, task);
+    if (flow != GST_FLOW_OK)
+      goto exit;
 
     status =
         MFXVideoDECODE_DecodeFrameAsync (session, &bitstream, &surface->surface,
@@ -568,6 +589,13 @@ exit:
 }
 
 static gboolean
+gst_msdkdec_decide_allocation_opaque (GstVideoDecoder * decoder,
+    GstQuery * query)
+{
+  return FALSE;
+}
+
+static gboolean
 gst_msdkdec_decide_allocation (GstVideoDecoder * decoder, GstQuery * query)
 {
   GstMsdkDec *thiz = GST_MSDKDEC (decoder);
@@ -582,6 +610,10 @@ gst_msdkdec_decide_allocation (GstVideoDecoder * decoder, GstQuery * query)
   if (!GST_VIDEO_DECODER_CLASS (parent_class)->decide_allocation (decoder,
           query))
     return FALSE;
+
+  if (0 && gst_query_find_allocation_meta (query, GST_MSDK_OPAQUE_META_API_TYPE,
+          NULL))
+    return gst_msdkdec_decide_allocation_opaque (decoder, query);
 
   /* Get the buffer pool config decided by the base class. The base
      class ensures that there will always be at least a 0th pool in
@@ -651,7 +683,7 @@ gst_msdkdec_decide_allocation (GstVideoDecoder * decoder, GstQuery * query)
   gst_query_set_nth_allocation_pool (query, 0, pool, size, min_buffers,
       max_buffers);
 
-  return TRUE;
+  return gst_msdkdec_init_decoder (thiz);
 }
 
 static gboolean
@@ -674,7 +706,7 @@ gst_msdkdec_drain (GstVideoDecoder * decoder)
   mfxStatus status;
   guint i;
 
-  if (!thiz->context)
+  if (!thiz->decoder_initialized)
     return GST_FLOW_OK;
   session = msdk_context_get_session (thiz->context);
 
