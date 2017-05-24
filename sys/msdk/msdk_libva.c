@@ -51,21 +51,16 @@ struct _MsdkContext
 };
 
 static gboolean
-msdk_use_vaapi_on_context (MsdkContext * context)
+open_va_display (MsdkContext * context, const gchar * path)
 {
   gint fd;
   gint maj_ver, min_ver;
   VADisplay va_dpy = NULL;
   VAStatus va_status;
-  mfxStatus status;
-  /* maybe /dev/dri/renderD128 */
-  static const gchar *dri_path = "/dev/dri/card0";
 
-  fd = open (dri_path, O_RDWR);
-  if (fd < 0) {
-    GST_ERROR ("Couldn't open %s", dri_path);
-    return FALSE;
-  }
+  fd = open (path, O_RDWR);
+  if (fd < 0)
+    goto failed;
 
   va_dpy = vaGetDisplayDRM (fd);
   if (!va_dpy) {
@@ -79,14 +74,6 @@ msdk_use_vaapi_on_context (MsdkContext * context)
     goto failed;
   }
 
-  status = MFXVideoCORE_SetHandle (context->session, MFX_HANDLE_VA_DISPLAY,
-      (mfxHDL) va_dpy);
-  if (status != MFX_ERR_NONE) {
-    GST_ERROR ("Setting VAAPI handle failed (%s)",
-        msdk_status_to_string (status));
-    goto failed;
-  }
-
   context->fd = fd;
   context->dpy = va_dpy;
 
@@ -95,7 +82,47 @@ msdk_use_vaapi_on_context (MsdkContext * context)
 failed:
   if (va_dpy)
     vaTerminate (va_dpy);
-  close (fd);
+  if (fd >= 0)
+    close (fd);
+  return FALSE;
+}
+
+static void
+close_va_display (MsdkContext * context)
+{
+  if (context->dpy) {
+    vaTerminate (context->dpy);
+    context->dpy = NULL;
+  }
+  if (context->fd >= 0) {
+    close (context->fd);
+    context->fd = -1;
+  }
+}
+
+static gboolean
+msdk_use_vaapi_on_context (MsdkContext * context)
+{
+  mfxStatus status;
+
+  if (!open_va_display (context, "/dev/dri/renderD128")
+      && !open_va_display (context, "/dev/dri/card0")) {
+    GST_ERROR ("Couldn't open drm device");
+    return FALSE;
+  }
+
+  status = MFXVideoCORE_SetHandle (context->session, MFX_HANDLE_VA_DISPLAY,
+      (mfxHDL) context->dpy);
+  if (status != MFX_ERR_NONE) {
+    GST_ERROR ("Setting VAAPI handle failed (%s)",
+        msdk_status_to_string (status));
+    goto failed;
+  }
+
+  return TRUE;
+
+failed:
+  close_va_display (context);
   return FALSE;
 }
 
@@ -129,10 +156,7 @@ msdk_close_context (MsdkContext * context)
     return;
 
   msdk_close_session (context->session);
-  if (context->dpy)
-    vaTerminate (context->dpy);
-  if (context->fd >= 0)
-    close (context->fd);
+  close_va_display (context);
   g_slice_free (MsdkContext, context);
 }
 
