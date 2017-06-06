@@ -56,7 +56,7 @@ G_DEFINE_TYPE (GstMsdkMJPEGDec, gst_msdkmjpegdec, GST_TYPE_MSDKDEC);
 static gboolean
 gst_msdkmjpegdec_configure (GstMsdkDec * decoder)
 {
-  decoder->param.mfx.CodecId = MFX_CODEC_JPEG;
+  decoder->param->mfx.CodecId = MFX_CODEC_JPEG;
   return TRUE;
 }
 

@@ -77,8 +77,8 @@ gst_msdkh265dec_configure (GstMsdkDec * decoder)
         msdk_status_to_string (status));
   }
 
-  decoder->param.mfx.CodecId = MFX_CODEC_HEVC;
-  decoder->param.mfx.CodecProfile = MFX_PROFILE_HEVC_MAIN;
+  decoder->param->mfx.CodecId = MFX_CODEC_HEVC;
+  decoder->param->mfx.CodecProfile = MFX_PROFILE_HEVC_MAIN;
   return TRUE;
 }
 

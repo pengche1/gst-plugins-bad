@@ -54,7 +54,7 @@ G_DEFINE_TYPE (GstMsdkH264Dec, gst_msdkh264dec, GST_TYPE_MSDKDEC);
 static gboolean
 gst_msdkh264dec_configure (GstMsdkDec * decoder)
 {
-  decoder->param.mfx.CodecId = MFX_CODEC_AVC;
+  decoder->param->mfx.CodecId = MFX_CODEC_AVC;
   return TRUE;
 }
 

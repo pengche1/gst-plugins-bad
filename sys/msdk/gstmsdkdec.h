@@ -62,16 +62,19 @@ struct _GstMsdkDec
   /* input description */
   GstVideoCodecState *input_state;
   GstVideoInfo output_info;
-  GstBufferPool *pool;
-  GstVideoInfo pool_info;
+  GstBufferPool *output_pool;
+  GstBufferPool *decode_pool;
+  GstVideoInfo decode_pool_info;
 
   /* MFX context */
   MsdkContext *context;
-  mfxVideoParam param;
+  mfxVideoParam *param;
+  mfxFrameAllocRequest alloc_request;
   GPtrArray *extra_params;
   GArray *surfaces;
   GArray *tasks;
   guint next_task;
+  gboolean decoder_initialized;
 
   /* element properties */
   gboolean hardware;
