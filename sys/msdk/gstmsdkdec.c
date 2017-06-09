@@ -36,6 +36,7 @@
 #include <stdlib.h>
 
 #include "gstmsdkdec.h"
+#include "gstmsdkopaqueallocator.h"
 
 GST_DEBUG_CATEGORY_EXTERN (gst_msdkdec_debug);
 #define GST_CAT_DEFAULT gst_msdkdec_debug
@@ -310,6 +311,10 @@ gst_msdkdec_init_decoder (GstMsdkDec * thiz)
   }
 
   session = msdk_context_get_session (thiz->context);
+
+  thiz->param->NumExtParam = thiz->extra_params->len;
+  thiz->param->ExtParam = (mfxExtBuffer **) thiz->extra_params->pdata;
+
   status = MFXVideoDECODE_Init (session, thiz->param);
   if (status < MFX_ERR_NONE) {
     GST_ERROR_OBJECT (thiz, "Init failed (%s)", msdk_status_to_string (status));
@@ -329,11 +334,12 @@ gst_msdkdec_init_decoder (GstMsdkDec * thiz)
         msdk_status_to_string (status));
   }
 
-  g_array_set_size (thiz->surfaces, 0);
-  g_array_set_size (thiz->surfaces, thiz->alloc_request.NumFrameSuggested);
-  for (i = 0; i < thiz->surfaces->len; i++) {
-    memcpy (&g_array_index (thiz->surfaces, MsdkSurface, i).surface.Info,
-        &thiz->param->mfx.FrameInfo, sizeof (mfxFrameInfo));
+  if (thiz->surfaces->len == 0) {
+    g_array_set_size (thiz->surfaces, thiz->alloc_request.NumFrameSuggested);
+    for (i = 0; i < thiz->surfaces->len; i++) {
+      memcpy (&g_array_index (thiz->surfaces, MsdkSurface, i).surface.Info,
+          &thiz->param->mfx.FrameInfo, sizeof (mfxFrameInfo));
+    }
   }
 
   g_array_set_size (thiz->tasks, 0);
@@ -632,7 +638,75 @@ exit:
 }
 
 static gboolean
-gst_msdkdec_decide_allocation (GstVideoDecoder * decoder, GstQuery * query)
+gst_msdkdec_decide_allocation_opaque (GstVideoDecoder * decoder,
+    GstQuery * query)
+{
+  GstMsdkDec *thiz = GST_MSDKDEC (decoder);
+  mfxSession session;
+  mfxStatus status;
+  mfxFrameAllocRequest request;
+  const GstStructure *opaque_params;
+  guint opaque_index, num_surfaces, type, i;
+  mfxFrameSurface1 **surfaces;
+  GstMsdkOpaqueAllocator *allocator;
+  mfxExtBuffer *ext_buffer;
+  GstBufferPool *pool;
+  GstStructure *pool_config;
+  GstCaps *caps;
+
+  gst_query_find_allocation_meta (query, GST_MSDK_OPAQUE_META_API_TYPE,
+      &opaque_index);
+  gst_query_parse_nth_allocation_meta (query, opaque_index, &opaque_params);
+  if (!gst_structure_get_uint (opaque_params, "gst.msdk.opaque.num_surfaces",
+          &num_surfaces))
+    return FALSE;
+  if (!gst_structure_get_uint (opaque_params, "gst.msdk.opaque.type", &type))
+    return FALSE;
+
+  thiz->param->IOPattern = MFX_IOPATTERN_OUT_OPAQUE_MEMORY;
+  session = msdk_context_get_session (thiz->context);
+  status = MFXVideoDECODE_QueryIOSurf (session, thiz->param, &request);
+  if (status < MFX_ERR_NONE) {
+    GST_ERROR_OBJECT (decoder, "QueryIOSurf failed (%s)",
+        msdk_status_to_string (status));
+    return FALSE;
+  }
+
+  num_surfaces += request.NumFrameSuggested;
+  type |= request.Type;
+
+  g_array_set_size (thiz->surfaces, 0);
+  g_array_set_size (thiz->surfaces, num_surfaces);
+  surfaces = g_new0 (mfxFrameSurface1 *, num_surfaces);
+  for (i = 0; i < num_surfaces; i++)
+    surfaces[i] = &g_array_index (thiz->surfaces, MsdkSurface, i).surface;
+  allocator = gst_msdk_opaque_allocator_new (surfaces, num_surfaces, type);
+  ext_buffer = gst_msdk_opaque_allocator_ext_buffer (allocator);
+  g_ptr_array_add (thiz->extra_params, g_memdup (ext_buffer,
+          ext_buffer->BufferSz));
+
+  gst_query_parse_nth_allocation_pool (query, 0, &pool, NULL, NULL, NULL);
+  pool_config = gst_buffer_pool_get_config (pool);
+  if (!gst_buffer_pool_config_get_params (pool_config, &caps, NULL, NULL, NULL))
+    return FALSE;
+  gst_buffer_pool_config_set_params (pool_config, caps, 1, num_surfaces,
+      num_surfaces);
+  gst_buffer_pool_config_set_allocator (pool_config, GST_ALLOCATOR (allocator),
+      NULL);
+  if (!gst_buffer_pool_set_config (pool, pool_config))
+    return FALSE;
+
+  gst_query_set_nth_allocation_param (query, 0, GST_ALLOCATOR (allocator),
+      NULL);
+  gst_query_set_nth_allocation_pool (query, 0, pool, 1, num_surfaces,
+      num_surfaces);
+
+  return TRUE;
+}
+
+static gboolean
+gst_msdkdec_decide_allocation_sysmem (GstVideoDecoder * decoder,
+    GstQuery * query)
 {
   GstMsdkDec *thiz = GST_MSDKDEC (decoder);
   GstVideoInfo info_from_caps, info_aligned;
@@ -640,24 +714,8 @@ gst_msdkdec_decide_allocation (GstVideoDecoder * decoder, GstQuery * query)
   GstBufferPool *pool = NULL;
   GstStructure *pool_config = NULL;
   GstCaps *pool_caps;
-  gboolean need_aligned, ret;
+  gboolean need_aligned;
   guint size, min_buffers, max_buffers;
-
-  if (thiz->output_pool) {
-    /* Renegotiating the pool while the element is running is not
-       supported. If negotiation has happened once then keep deciding
-       on that same pool until a close_decoder() happens. */
-    pool_config = gst_buffer_pool_get_config (thiz->output_pool);
-    gst_buffer_pool_config_get_params (pool_config, &pool_caps, &size,
-        &min_buffers, &max_buffers);
-    gst_query_set_nth_allocation_pool (query, 0, thiz->output_pool, size,
-        min_buffers, max_buffers);
-    return TRUE;
-  }
-
-  if (!GST_VIDEO_DECODER_CLASS (parent_class)->decide_allocation (decoder,
-          query))
-    return FALSE;
 
   /* Get the buffer pool config decided by the base class. The base
      class ensures that there will always be at least a 0th pool in
@@ -725,10 +783,55 @@ gst_msdkdec_decide_allocation (GstVideoDecoder * decoder, GstQuery * query)
   gst_query_set_nth_allocation_pool (query, 0, pool, size, min_buffers,
       max_buffers);
 
-  ret = gst_msdkdec_init_decoder (thiz);
+  return TRUE;
+}
+
+static gboolean
+gst_msdkdec_decide_allocation_existing (GstVideoDecoder * decoder,
+    GstQuery * query)
+{
+  GstMsdkDec *thiz = GST_MSDKDEC (decoder);
+  GstStructure *pool_config;
+  GstCaps *pool_caps;
+  guint size, min_buffers, max_buffers;
+
+  pool_config = gst_buffer_pool_get_config (thiz->output_pool);
+  gst_buffer_pool_config_get_params (pool_config, &pool_caps, &size,
+      &min_buffers, &max_buffers);
+  gst_query_set_nth_allocation_pool (query, 0, thiz->output_pool, size,
+      min_buffers, max_buffers);
+
+  return TRUE;
+}
+
+static gboolean
+gst_msdkdec_decide_allocation (GstVideoDecoder * decoder, GstQuery * query)
+{
+  GstMsdkDec *thiz = GST_MSDKDEC (decoder);
+  gboolean ret;
+
+  if (thiz->output_pool)
+    /* Renegotiating the pool while the element is running is not
+       supported. If negotiation has happened once then keep deciding
+       on that same pool until a close_decoder() happens. */
+    return gst_msdkdec_decide_allocation_existing (decoder, query);
+
+  if (!GST_VIDEO_DECODER_CLASS (parent_class)->decide_allocation (decoder,
+          query))
+    return FALSE;
+
+  if (gst_query_find_allocation_meta (query, GST_MSDK_OPAQUE_META_API_TYPE,
+          NULL))
+    ret = gst_msdkdec_decide_allocation_opaque (decoder, query);
+  else
+    ret = gst_msdkdec_decide_allocation_sysmem (decoder, query);
 
   if (ret)
-    thiz->output_pool = gst_object_ref (pool);
+    ret = gst_msdkdec_init_decoder (thiz);
+
+  if (ret)
+    gst_query_parse_nth_allocation_pool (query, 0, &thiz->output_pool, NULL,
+        NULL, NULL);
 
   return ret;
 }
